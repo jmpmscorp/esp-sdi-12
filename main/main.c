@@ -6,9 +6,12 @@
 
 #include "esp_log.h"
 
+#if CONFIG_PM_ENABLE
+#include "esp_pm.h"
+#endif
 #include "sdi12.h"
 
-#define SDI12_DATA_GPIO 23
+#define SDI12_DATA_GPIO 19
 #define SDI12_RMT_CHANNEL 0
 
 static const char *TAG = "[MAIN]";
@@ -22,14 +25,16 @@ static void read_sensor_task(void *arg)
 
    do
    {
-      ret = bus->address_query(bus, &address, 0);
+      ret = bus->address_query(bus, &address, 5000);
 
       if (ret != ESP_OK)
       {
          /** If you want to find address sensor, ensure you only have one sensor connected on bus.
           *  If there are many sensors, they will all respond to command causing bus contention.
           */
-         ESP_LOGI(TAG, "Can't found sensor");
+         char err_buf[50];
+         esp_err_to_name_r(ret, err_buf, sizeof(err_buf));
+         ESP_LOGI(TAG, "Can't found sensor. Error: %s", err_buf);
          vTaskDelay(pdMS_TO_TICKS(2500));
          ESP_LOGI(TAG, "Address Query Retry");
       }
@@ -67,6 +72,18 @@ static void read_sensor_task(void *arg)
 
 void app_main(void)
 {
+
+#if CONFIG_PM_ENABLE
+   esp_pm_config_esp32_t pm_config = {
+      .max_freq_mhz = CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ,
+      .min_freq_mhz = CONFIG_ESP32_XTAL_FREQ,
+#if CONFIG_FREERTOS_USE_TICKLESS_IDLE
+      .light_sleep_enable = false
+#endif
+   };
+
+   ESP_ERROR_CHECK(esp_pm_configure(&pm_config));
+#endif
 
    sdi12_bus_config_t config = {
        .gpio_num = SDI12_DATA_GPIO,

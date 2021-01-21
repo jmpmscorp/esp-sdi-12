@@ -105,6 +105,19 @@ static esp_err_t config_rmt_as_tx(p_sdi12_bus_t *p_bus)
     }
 
     rmt_config_t rmt_tx = RMT_DEFAULT_CONFIG_TX(p_bus->gpio_num, p_bus->rmt_channel);
+
+    // Configure REF_TICKS as clk source
+    #if CONFIG_PM_ENABLE 
+    #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 2, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 3, 0)
+    rmt_tx.flags = RMT_CHANNEL_FLAGS_ALWAYS_ON;
+    #elif ESP_IDF_VERSION == ESP_IDF_VERSION_VAL(4, 3, 0)
+    rmt_tx.flags = RMT_CHANNEL_FLAGS_AWARE_DFS;
+    #endif
+
+    // REF_TICKS runs at 1MHz. RMT_DEFAULT_CONFIG_XX configure clk_div to 80, so we must ovewrite clk_div to 1
+    rmt_tx.clk_div = 1;
+    #endif
+
     SDI12_CHECK(rmt_config(&rmt_tx) == ESP_OK, "Error on RMT TX config", err);
     SDI12_CHECK(rmt_driver_install(p_bus->rmt_channel, 0, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK, "RMT TX install error", err);
     p_bus->rmt_mode = RMT_MODE_TX;
@@ -136,6 +149,17 @@ static esp_err_t config_rmt_as_rx(p_sdi12_bus_t *p_bus)
     rmt_driver_uninstall(p_bus->rmt_channel);
     rmt_config_t rmt_rx = RMT_DEFAULT_CONFIG_RX(p_bus->gpio_num, p_bus->rmt_channel);
     rmt_rx.mem_block_num = 2;
+
+    #if CONFIG_PM_ENABLE 
+    #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 2, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 3, 0)
+    rmt_rx.flags = RMT_CHANNEL_FLAGS_ALWAYS_ON;
+    #elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 3, 0)
+    rmt_rx.flags = RMT_CHANNEL_FLAGS_AWARE_DFS;
+    #endif
+
+    rmt_rx.clk_div = 1;
+    #endif
+
     SDI12_CHECK(rmt_config(&rmt_rx) == ESP_OK, "Error on RMT RX config", err);
     SDI12_CHECK(rmt_driver_install(p_bus->rmt_channel, 1024, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK, "RMT RX install error", err);
     p_bus->rmt_mode = RMT_MODE_RX;
@@ -337,7 +361,7 @@ static esp_err_t send_cmd(p_sdi12_bus_t *p_bus, const char *cmd)
     rmt_items[cursor].level1 = SDI12_MARKING;
     rmt_items[cursor].duration1 = SDI12_POST_BREAK_MARKING_US;
     ++cursor;
-
+    vTaskDelay(pdMS_TO_TICKS(80));
     // Data
 
     uint8_t index = 0;

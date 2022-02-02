@@ -182,6 +182,14 @@ extern "C"
          * @return esp_err_t    
          */
         esp_err_t (*wait_service_request)(sdi12_bus_t *bus, char address, uint32_t timeout);
+
+        /**
+         * @brief Deallocate and free resources taken by the bus
+         * 
+         * @param bus[in]       bus object
+         * 
+         */
+        esp_err_t (*deinit)(sdi12_bus_t *bus);
     };
 
     /**

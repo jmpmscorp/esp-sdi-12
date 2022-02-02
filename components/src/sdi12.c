@@ -35,8 +35,8 @@ typedef struct
  * From specs 1.4, maximum number of characters returned in <values> field is limited to 75 bytes.
  * To this 75, we must add possible CRC(3 bytes), start address(1 bytes), <CR><LF> end and '\0' C string terminator.
  * Total is 82.
- */ 
-#define RESPONSE_BUFFER_DEFAULT_SIZE (85)   
+ */
+#define RESPONSE_BUFFER_DEFAULT_SIZE (85)
 
 #define SDI12_BREAK_US (12200)
 #define SDI12_POST_BREAK_MARKING_US (8333)
@@ -87,9 +87,9 @@ static const char *TAG = "SDI12";
 
 /**
  * @brief Configure RMT channel as Transmissor
- * 
+ *
  * @param p_bus         bus object
- * @return esp_err_t 
+ * @return esp_err_t
  *      - ESP_FAIL RMT config install error
  *      - ESP_OK  configuration and installation OK
  */
@@ -106,17 +106,17 @@ static esp_err_t config_rmt_as_tx(p_sdi12_bus_t *p_bus)
 
     rmt_config_t rmt_tx = RMT_DEFAULT_CONFIG_TX(p_bus->gpio_num, p_bus->rmt_channel);
 
-    // Configure REF_TICKS as clk source
-    #if CONFIG_PM_ENABLE 
-    #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 2, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 3, 0)
+// Configure REF_TICKS as clk source
+#if CONFIG_PM_ENABLE
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 2, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 3, 0)
     rmt_tx.flags = RMT_CHANNEL_FLAGS_ALWAYS_ON;
-    #elif ESP_IDF_VERSION == ESP_IDF_VERSION_VAL(4, 3, 0)
+#elif ESP_IDF_VERSION == ESP_IDF_VERSION_VAL(4, 3, 0)
     rmt_tx.flags = RMT_CHANNEL_FLAGS_AWARE_DFS;
-    #endif
+#endif
 
     // REF_TICKS runs at 1MHz. RMT_DEFAULT_CONFIG_XX configure clk_div to 80, so we must ovewrite clk_div to 1
     rmt_tx.clk_div = 1;
-    #endif
+#endif
 
     SDI12_CHECK(rmt_config(&rmt_tx) == ESP_OK, "Error on RMT TX config", err);
     SDI12_CHECK(rmt_driver_install(p_bus->rmt_channel, 0, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK, "RMT TX install error", err);
@@ -129,9 +129,9 @@ err:
 
 /**
  * @brief Configure RMT channel as Receptor
- * 
+ *
  * @param p_bus         bus object
- * @return esp_err_t 
+ * @return esp_err_t
  *      - ESP_FAIL RMT config install error
  *      - ESP_OK  configuration and installation OK
  */
@@ -141,24 +141,23 @@ static esp_err_t config_rmt_as_rx(p_sdi12_bus_t *p_bus)
     {
         return ESP_OK;
     }
-    else if (p_bus->rmt_mode == RMT_MODE_RX)
+    else if (p_bus->rmt_mode == RMT_MODE_TX)
     {
         rmt_driver_uninstall(p_bus->rmt_channel);
     }
 
-    rmt_driver_uninstall(p_bus->rmt_channel);
     rmt_config_t rmt_rx = RMT_DEFAULT_CONFIG_RX(p_bus->gpio_num, p_bus->rmt_channel);
     rmt_rx.mem_block_num = 2;
 
-    #if CONFIG_PM_ENABLE 
-    #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 2, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 3, 0)
+#if CONFIG_PM_ENABLE
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 2, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 3, 0)
     rmt_rx.flags = RMT_CHANNEL_FLAGS_ALWAYS_ON;
-    #elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 3, 0)
+#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 3, 0)
     rmt_rx.flags = RMT_CHANNEL_FLAGS_AWARE_DFS;
-    #endif
+#endif
 
     rmt_rx.clk_div = 1;
-    #endif
+#endif
 
     SDI12_CHECK(rmt_config(&rmt_rx) == ESP_OK, "Error on RMT RX config", err);
     SDI12_CHECK(rmt_driver_install(p_bus->rmt_channel, 1024, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK, "RMT RX install error", err);
@@ -171,11 +170,11 @@ err:
 
 /**
  * @brief Parse RMT items into char buffer. Stop when SDI12 response end (\r\n) is found
- * 
+ *
  * @param p_bus         bus object
  * @param items         received rmt items
  * @param items_length  received rmt items length
- * @return esp_err_t 
+ * @return esp_err_t
  *      - ESP_ERR_INVALID_ARG bus or items are NULL or items_length <= 0
  *      - ESP_ERR_NOT_FOUND SDI12 end isn't found
  *      - ESP_OK SDI12 end is found and parse ok
@@ -221,7 +220,7 @@ static esp_err_t parse_response(p_sdi12_bus_t *p_bus, rmt_item32_t *items, size_
             switch (bit_counter)
             {
 
-            //start bit
+            // start bit
             case 0:
                 // We need to found start bit.
                 if (level == 1)
@@ -638,7 +637,7 @@ static esp_err_t raw_cmd(sdi12_bus_t *bus, char address, const char *command, ch
     SDI12_CHECK(p_bus, "BUS is NULL", err);
     SDI12_CHECK(command, "NULL cmd", err);
 
-    size_t full_cmd_size = 3 + strlen(command); //3(address + '!' + '\0' string end)
+    size_t full_cmd_size = 3 + strlen(command); // 3(address + '!' + '\0' string end)
     char *cmd = calloc(full_cmd_size, sizeof(char));
     *cmd = '\0';
     sprintf(cmd, "%c%.*s!", address, strlen(command), command);
@@ -670,7 +669,7 @@ err:
 static esp_err_t start_any_measurement(sdi12_bus_t *bus, char address, char measurement_type, uint8_t index, uint8_t *ready_seconds, uint8_t *measurements, uint32_t timeout)
 {
     p_sdi12_bus_t *p_bus = __containerof(bus, p_sdi12_bus_t, parent);
-    SDI12_CHECK(p_bus, "BUS is NULL", err);
+    SDI12_CHECK(p_bus, "Invalid or NULL bus", err);
 
     char cmd[5] = "";
 
@@ -689,10 +688,10 @@ static esp_err_t start_any_measurement(sdi12_bus_t *bus, char address, char meas
     esp_err_t ret = send_cmd_wait_response_line(p_bus, cmd, timeout);
 
     /** Response should be atttn<CR><LF>.
-    *   a: sensor address
-    *   ttt: seconds until measurement(s) will be ready
-    *   n: number of measurement values
-    */
+     *   a: sensor address
+     *   ttt: seconds until measurement(s) will be ready
+     *   n: number of measurement values
+     */
     if (ret == ESP_OK)
     {
         ret = SDI12_CHECK_ADDRESS(p_bus, address);
@@ -769,6 +768,25 @@ static esp_err_t start_verification(sdi12_bus_t *bus, char address, uint32_t tim
     return start_any_measurement(bus, address, 'V', 0, NULL, NULL, timeout);
 }
 
+static esp_err_t deinit(sdi12_bus_t *bus)
+{
+    p_sdi12_bus_t *p_bus = __containerof(bus, p_sdi12_bus_t, parent);
+    SDI12_CHECK(p_bus, "Invalid or NULL bus", err);
+
+    esp_err_t ret = rmt_driver_uninstall(p_bus->rmt_channel);
+
+    if(p_bus->response_buffer)
+    {
+        free(p_bus->response_buffer);
+    }
+    
+    free(p_bus);
+
+    return ret;
+err:
+    return ESP_ERR_INVALID_ARG;
+}
+
 sdi12_bus_t *sdi12_bus_init(sdi12_bus_config_t *config)
 {
     SDI12_CHECK(config, "Config is NULL", err);
@@ -792,12 +810,14 @@ sdi12_bus_t *sdi12_bus_init(sdi12_bus_config_t *config)
     p_sdi12_bus->parent.start_measurement = start_measurement;
     p_sdi12_bus->parent.start_additional_concurrent_measurement = start_additional_concurrent_measurement;
     p_sdi12_bus->parent.start_concurrent_measurement = start_concurrent_measurement;
+    p_sdi12_bus->parent.start_verification = start_verification;
     p_sdi12_bus->parent.raw_cmd = raw_cmd;
     p_sdi12_bus->parent.read_identification = read_identification;
     p_sdi12_bus->parent.read_values = read_values;
     p_sdi12_bus->parent.read_continuos_values = read_continuos_values;
     p_sdi12_bus->parent.wait_service_request = wait_service_request;
-
+    p_sdi12_bus->parent.deinit = deinit;
+    
     p_sdi12_bus->api_mutex = xSemaphoreCreateMutex();
     SDI12_CHECK(p_sdi12_bus->api_mutex, "Mutex allocation error", err_mutex);
 

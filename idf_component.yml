@@ -1,0 +1,6 @@
+version: "4.0.0"
+description: SDI-12 bus implementation using RMT
+url: "https://github.com/jmpmscorp/esp-sdi-12"
+dependencies:
+  idf:
+    version: ">=4.1"

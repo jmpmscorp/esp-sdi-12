@@ -1,1 +1,6 @@
 esp-sdi-12.code-workspace
+**/.vscode
+**/.devcontainer
+**/build/
+**/sdkconfig
+**/sdkconfig.old

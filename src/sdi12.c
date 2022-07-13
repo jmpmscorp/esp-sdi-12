@@ -15,7 +15,8 @@
 typedef struct
 {
     uint8_t gpio_num;
-    rmt_channel_t rmt_channel;
+    rmt_channel_t rmt_tx_channel;
+    rmt_channel_t rmt_rx_channel;
     rmt_mode_t rmt_mode;
     sdi12_bus_t parent;
     uint16_t response_buffer_length;
@@ -39,7 +40,8 @@ typedef struct
 #define RESPONSE_BUFFER_DEFAULT_SIZE (85)
 
 #define SDI12_BREAK_US (12200)
-#define SDI12_POST_BREAK_MARKING_US (8333)
+// #define SDI12_POST_BREAK_MARKING_US (8333)
+#define SDI12_POST_BREAK_MARKING_US (9000)
 #define SDI12_BIT_WIDTH_US (833)
 
 #define SDI12_MARKING (0)
@@ -101,10 +103,10 @@ static esp_err_t config_rmt_as_tx(p_sdi12_bus_t *p_bus)
     }
     else if (p_bus->rmt_mode == RMT_MODE_RX)
     {
-        rmt_driver_uninstall(p_bus->rmt_channel);
+        rmt_driver_uninstall(p_bus->rmt_rx_channel);
     }
 
-    rmt_config_t rmt_tx = RMT_DEFAULT_CONFIG_TX(p_bus->gpio_num, p_bus->rmt_channel);
+    rmt_config_t rmt_tx = RMT_DEFAULT_CONFIG_TX(p_bus->gpio_num, p_bus->rmt_tx_channel);
 
 // Configure REF_TICKS as clk source
 #if CONFIG_PM_ENABLE
@@ -119,7 +121,7 @@ static esp_err_t config_rmt_as_tx(p_sdi12_bus_t *p_bus)
 #endif
 
     SDI12_CHECK(rmt_config(&rmt_tx) == ESP_OK, "Error on RMT TX config", err);
-    SDI12_CHECK(rmt_driver_install(p_bus->rmt_channel, 0, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK, "RMT TX install error", err);
+    SDI12_CHECK(rmt_driver_install(p_bus->rmt_tx_channel, 0, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK, "RMT TX install error", err);
     p_bus->rmt_mode = RMT_MODE_TX;
 
     return ESP_OK;
@@ -143,10 +145,10 @@ static esp_err_t config_rmt_as_rx(p_sdi12_bus_t *p_bus)
     }
     else if (p_bus->rmt_mode == RMT_MODE_TX)
     {
-        rmt_driver_uninstall(p_bus->rmt_channel);
+        rmt_driver_uninstall(p_bus->rmt_tx_channel);
     }
 
-    rmt_config_t rmt_rx = RMT_DEFAULT_CONFIG_RX(p_bus->gpio_num, p_bus->rmt_channel);
+    rmt_config_t rmt_rx = RMT_DEFAULT_CONFIG_RX(p_bus->gpio_num, p_bus->rmt_rx_channel);
     rmt_rx.mem_block_num = 2;
 
 #if CONFIG_PM_ENABLE
@@ -160,7 +162,7 @@ static esp_err_t config_rmt_as_rx(p_sdi12_bus_t *p_bus)
 #endif
 
     SDI12_CHECK(rmt_config(&rmt_rx) == ESP_OK, "Error on RMT RX config", err);
-    SDI12_CHECK(rmt_driver_install(p_bus->rmt_channel, 1024, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK, "RMT RX install error", err);
+    SDI12_CHECK(rmt_driver_install(p_bus->rmt_rx_channel, 1024, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK, "RMT RX install error", err);
     p_bus->rmt_mode = RMT_MODE_RX;
 
     return ESP_OK;
@@ -311,8 +313,8 @@ static esp_err_t read_response_line(p_sdi12_bus_t *p_bus, uint32_t timeout)
     uint32_t aux_timeout = timeout != 0 ? timeout : DEFAULT_RESPONSE_TIMEOUT;
     RingbufHandle_t rb = NULL;
 
-    ret = rmt_get_ringbuf_handle(p_bus->rmt_channel, &rb);
-    ret = rmt_rx_start(p_bus->rmt_channel, 1);
+    ret = rmt_get_ringbuf_handle(p_bus->rmt_rx_channel, &rb);
+    ret = rmt_rx_start(p_bus->rmt_rx_channel, 1);
     if (ret == ESP_OK && rb)
     {
         do
@@ -423,7 +425,7 @@ static esp_err_t send_cmd(p_sdi12_bus_t *p_bus, const char *cmd)
 
     if (ret == ESP_OK)
     {
-        ret = rmt_write_items(p_bus->rmt_channel, rmt_items, rmt_items_length, 1);
+        ret = rmt_write_items(p_bus->rmt_tx_channel, rmt_items, rmt_items_length, 1);
     }
 
     return ret;
@@ -631,16 +633,16 @@ static esp_err_t read_continuos_values(sdi12_bus_t *bus, char address, uint8_t r
     return read_any_values(bus, address, 'R', r_index, out_buffer, out_buffer_length, timeout);
 }
 
-static esp_err_t raw_cmd(sdi12_bus_t *bus, char address, const char *command, char *response_buffer, size_t response_buffer_length, uint32_t timeout)
+static esp_err_t raw_cmd(sdi12_bus_t *bus, const char *cmd, char *response_buffer, size_t response_buffer_length, uint32_t timeout)
 {
     p_sdi12_bus_t *p_bus = __containerof(bus, p_sdi12_bus_t, parent);
     SDI12_CHECK(p_bus, "BUS is NULL", err);
-    SDI12_CHECK(command, "NULL cmd", err);
+    SDI12_CHECK(cmd, "NULL cmd", err);
 
-    size_t full_cmd_size = 3 + strlen(command); // 3(address + '!' + '\0' string end)
-    char *cmd = calloc(full_cmd_size, sizeof(char));
-    *cmd = '\0';
-    sprintf(cmd, "%c%.*s!", address, strlen(command), command);
+    // size_t full_cmd_size = 3 + strlen(command); // 3(address + '!' + '\0' string end)
+    // char *cmd = calloc(full_cmd_size, sizeof(char));
+    // *cmd = '\0';
+    // sprintf(cmd, "%c%.*s!", address, strlen(command), command);
 
     SDI12_BUS_LOCK(p_bus);
     SDI12_APB_LOCK(p_bus);
@@ -659,7 +661,6 @@ static esp_err_t raw_cmd(sdi12_bus_t *bus, char address, const char *command, ch
     SDI12_APB_UNLOCK(p_bus);
     SDI12_BUS_UNLOCK(p_bus);
 
-    free(cmd);
     return ret;
 
 err:
@@ -772,14 +773,22 @@ static esp_err_t deinit(sdi12_bus_t *bus)
 {
     p_sdi12_bus_t *p_bus = __containerof(bus, p_sdi12_bus_t, parent);
     SDI12_CHECK(p_bus, "Invalid or NULL bus", err);
+    esp_err_t ret = ESP_OK;
 
-    esp_err_t ret = rmt_driver_uninstall(p_bus->rmt_channel);
+    if (p_bus->rmt_mode == RMT_MODE_RX)
+    {
+        ret = rmt_driver_uninstall(p_bus->rmt_rx_channel);
+    }
+    else if(p_bus->rmt_mode == RMT_MODE_TX)
+    {
+        ret = rmt_driver_uninstall(p_bus->rmt_tx_channel);
+    }
 
-    if(p_bus->response_buffer)
+    if (p_bus->response_buffer)
     {
         free(p_bus->response_buffer);
     }
-    
+
     free(p_bus);
 
     return ret;
@@ -800,7 +809,8 @@ sdi12_bus_t *sdi12_bus_init(sdi12_bus_config_t *config)
     SDI12_CHECK(p_sdi12_bus, "Can't allocate response buffer", err_buf);
 
     p_sdi12_bus->gpio_num = config->gpio_num;
-    p_sdi12_bus->rmt_channel = config->rmt_channel;
+    p_sdi12_bus->rmt_tx_channel = config->rmt_tx_channel;
+    p_sdi12_bus->rmt_rx_channel = config->rmt_rx_channel;
     p_sdi12_bus->rmt_mode = RMT_MODE_MAX; // Force firts time installation
 
     p_sdi12_bus->parent.acknowledge_active = acknowledge_active;
@@ -817,7 +827,7 @@ sdi12_bus_t *sdi12_bus_init(sdi12_bus_config_t *config)
     p_sdi12_bus->parent.read_continuos_values = read_continuos_values;
     p_sdi12_bus->parent.wait_service_request = wait_service_request;
     p_sdi12_bus->parent.deinit = deinit;
-    
+
     p_sdi12_bus->api_mutex = xSemaphoreCreateMutex();
     SDI12_CHECK(p_sdi12_bus->api_mutex, "Mutex allocation error", err_mutex);
 

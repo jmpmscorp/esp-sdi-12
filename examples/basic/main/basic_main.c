@@ -1,9 +1,10 @@
 #include <stdio.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
 #include "esp_system.h"
 #include "esp_spi_flash.h"
-
 #include "esp_log.h"
 
 #if CONFIG_PM_ENABLE
@@ -11,8 +12,9 @@
 #endif
 #include "sdi12.h"
 
-#define SDI12_DATA_GPIO 17
-#define SDI12_RMT_CHANNEL 0
+#define SDI12_DATA_GPIO GPIO_NUM_17
+#define SDI12_RMT_TX_CHANNEL 0
+#define SDI12_RMT_RX_CHANNEL 4
 
 static const char *TAG = "[MAIN]";
 
@@ -43,7 +45,7 @@ static void read_sensor_task(void *arg)
    ESP_LOGI(TAG, "Sensor Address: %c", address);
 
    // There is query information command implement but this shows raw_cmd
-   ret = bus->raw_cmd(bus, address, "I", buffer, sizeof(buffer), 0);
+   ret = bus->raw_cmd(bus, "0I!", buffer, sizeof(buffer), 0);
 
    if (ret == ESP_OK)
    {
@@ -87,14 +89,13 @@ void app_main(void)
 
    sdi12_bus_config_t config = {
        .gpio_num = SDI12_DATA_GPIO,
-       .rmt_channel = SDI12_RMT_CHANNEL,
+       .rmt_tx_channel = SDI12_RMT_TX_CHANNEL,
+       .rmt_rx_channel = SDI12_RMT_RX_CHANNEL
    };
 
    sdi12_bus_t *sdi12_bus = sdi12_bus_init(&config);
 
    ESP_LOGI(TAG, "Init");
 
-   xTaskCreatePinnedToCore(read_sensor_task, "", configMINIMAL_STACK_SIZE * 3, sdi12_bus, 6, NULL, 1);
-
-   // ESP_LOGI(TAG, "Aqui 2");
+   xTaskCreatePinnedToCore(read_sensor_task, "read_sensor_task", configMINIMAL_STACK_SIZE * 5, sdi12_bus, 6, NULL, 1);
 }

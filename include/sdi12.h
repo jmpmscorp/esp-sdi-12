@@ -21,7 +21,8 @@ extern "C"
     typedef struct
     {
         uint8_t gpio_num;
-        rmt_channel_t rmt_channel;
+        rmt_channel_t rmt_tx_channel;
+        rmt_channel_t rmt_rx_channel;
         uint8_t response_buffer_length;
     } sdi12_bus_config_t;
 
@@ -64,7 +65,6 @@ extern "C"
          * @details Any check and parser are applied to response. You'll get get raw response in response_buffer.
          *  
          * @param bus[in]                       bus object
-         * @param address[in]                   sensor address
          * @param cmd[in]                       command to send without address and !. The will be concated by function
          * @param response_buffer[out]          buffer to store sensor response
          * @param response_buffer_length[in]    maximum length allowed to store in response buffer
@@ -72,7 +72,7 @@ extern "C"
          * @return esp_err_t 
          * 
          */
-        esp_err_t (*raw_cmd)(sdi12_bus_t *bus, char address, const char *cmd, char *response_buffer, size_t response_buffer_length, uint32_t timeout);
+        esp_err_t (*raw_cmd)(sdi12_bus_t *bus, const char *cmd, char *response_buffer, size_t response_buffer_length, uint32_t timeout);
 
 
         /**

@@ -76,13 +76,17 @@ struct sdi12_bus
         }                                                                         \
     } while (0)
 
-#define IS_VALID_PIN(p) ((p >= 0 && p < 6) || (p > 11 && p < 34))
+#if CONFIG_IDF_TARGET_ESP32
+#define IS_VALID_PIN(p) ((p > 0 && p < 6) || (p > 11 && p < 34))
+#elif CONFIG_IDF_TARGET_ESP32S2
+#define IS_VALID_PIN(p) ((p > 0 && p < 26) || (p >= 32 && p < 45))
+#elif CONFIG_IDF_TARGET_ESP32S3
+#define IS_VALID_PIN(p) ((p > 0 && p < 3) || (p > 3 && p <= 21) || (p > 32 && p < 48))
+#elif CONFIG_IDF_TARGET_ESP32C3
+#define IS_VALID_PIN(p) (!(p >= 12 && p <= 17))
+#endif
 
 static const char *TAG = "SDI12 BUS";
-
-/******************************************************************************************************
- * *************************            INTERNAL UTILS      *******************************************
- * ****************************************************************************************************/
 
 /**
  * @brief Configure RMT channel as Transmissor

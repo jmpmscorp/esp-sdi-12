@@ -21,7 +21,7 @@
 
 #include "esp_log.h"
 
-#include "sdi12.h"
+#include "sdi12_bus.h"
 
 #include "sdkconfig.h"
 
@@ -34,24 +34,60 @@ static sdi12_bus_t *sdi12_bus;
 static const char *TAG = "sdi12-usb-terminal";
 static uint8_t buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
 static char response[85] = "";
+bool check_crc = false;
+
+uint8_t check_wait_to_service_request(const char *buffer)
+{
+    uint8_t seconds = 0;
+
+    if (strlen(buffer) != 5)
+    {
+        return 0;
+    }
+
+    uint8_t factor = 100;
+
+    for (uint8_t i = 1; i < 4; i++)
+    {
+        seconds += (buffer[i] - '0') * factor;
+        factor /= 10;
+    }
+
+    return seconds;
+}
 
 void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
     /* initialization */
     size_t rx_size = 0;
+
     memset(response, '\0', sizeof(response));
     /* read */
     esp_err_t ret = tinyusb_cdcacm_read(itf, buf, CONFIG_TINYUSB_CDC_RX_BUFSIZE, &rx_size);
-    if (ret == ESP_OK) {
+    if (ret == ESP_OK)
+    {
         buf[rx_size] = '\0';
         ESP_LOGI(TAG, "Got data (%d bytes): %s", rx_size, buf);
-    } else {
+    }
+    else
+    {
         ESP_LOGE(TAG, "Read error");
     }
 
-    sdi12_bus->raw_cmd(sdi12_bus, (const char *)buf, response, sizeof(response), 0);
+    ret = sdi12_bus_send_cmd(sdi12_bus, (const char *)buf, response, sizeof(response), check_crc, 0);
+
     tinyusb_cdcacm_write_queue(itf, (const uint8_t *)response, strlen(response));
     tinyusb_cdcacm_write_flush(itf, 50);
+
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(TAG, "SDI error: %s", esp_err_to_name(ret));
+    }
+
+    if ((char)buf[1] == 'M' || (char)buf[1] == 'C' || (char)buf[1] == 'R')
+    {
+        check_crc = (char)buf[2] == 'C' ? true : false;
+    }
 }
 
 void tinyusb_cdc_line_state_changed_callback(int itf, cdcacm_event_t *event)
@@ -74,19 +110,19 @@ void app_main(void)
         .callback_rx = &tinyusb_cdc_rx_callback, // the first way to register a callback
         .callback_rx_wanted_char = NULL,
         .callback_line_state_changed = &tinyusb_cdc_line_state_changed_callback,
-        .callback_line_coding_changed = NULL
-    };
+        .callback_line_coding_changed = NULL};
 
     ESP_ERROR_CHECK(tusb_cdc_acm_init(&amc_cfg));
     ESP_LOGI(TAG, "USB initialization DONE");
 
     sdi12_bus_config_t config = {
-       .gpio_num = SDI12_DATA_GPIO,
-       .rmt_tx_channel = SDI12_RMT_TX_CHANNEL,
-       .rmt_rx_channel = SDI12_RMT_RX_CHANNEL
-   };
+        .gpio_num = SDI12_DATA_GPIO,
+        .rmt_tx_channel = SDI12_RMT_TX_CHANNEL,
+        .rmt_rx_channel = SDI12_RMT_RX_CHANNEL,
+        .bus_timing = {
+            .post_break_marking_us = 9000}};
 
-   sdi12_bus = sdi12_bus_init(&config);
+    sdi12_bus = sdi12_bus_init(&config);
 
-   ESP_LOGI(TAG, "SDI12 BUS initialization DONE");
+    ESP_LOGI(TAG, "SDI12 BUS initialization DONE");
 }

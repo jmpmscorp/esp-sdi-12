@@ -3,6 +3,7 @@
 #include <sys/param.h>
 
 #include "esp_idf_version.h"
+
 #include "esp_log.h"
 
 #include "freertos/FreeRTOS.h"
@@ -216,8 +217,6 @@ static esp_err_t parse_response(sdi12_bus_t *bus, rmt_item32_t *items, size_t it
 
         level0 = !level0;
 
-        ESP_LOGD(TAG, "Level: %d, Number of Bits: %d", level, number_of_bits);
-
         while (number_of_bits > 0 && number_of_bits < 10)
         {
 
@@ -251,7 +250,7 @@ static esp_err_t parse_response(sdi12_bus_t *bus, rmt_item32_t *items, size_t it
                     if (bus->response_buffer[char_index] == '\n' && bus->response_buffer[char_index - 1] == '\r')
                     {
                         bus->response_buffer[char_index - 1] = '\0'; // Delete \r\n from response buffer
-                        ESP_LOGD(TAG, "Response: %s", bus->response_buffer);
+                        ESP_LOGD(TAG, "In: %s", bus->response_buffer);
                         return ESP_OK;
                     }
 
@@ -467,16 +466,14 @@ static esp_err_t sdi12_check_crc(const char *response)
     crc_str[1] = (char)(0x0040 | ((crc >> 6) & 0x003F));
     crc_str[2] = (char)(0x0040 | (crc & 0x003F));
 
-    ESP_LOGI(TAG, "CRC: %s", crc_str);
-
     if (strncmp(crc_str, response + response_len - 3, 3) == 0)
     {
-        ESP_LOGI(TAG, "CRC: %s, Valid!", crc_str);
+        ESP_LOGD(TAG, "CRC: %s, Valid!", crc_str);
         return ESP_OK;
     }
     else
     {
-        ESP_LOGI(TAG, "CRC: %s, Invalid!", crc_str);
+        ESP_LOGD(TAG, "CRC: %s, Invalid!", crc_str);
         return ESP_ERR_INVALID_CRC;
     }
 }
@@ -488,7 +485,7 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, const char *buff
 
     uint8_t cmd_len = strlen(cmd);
     SDI12_CHECK(cmd[cmd_len - 1] == '!', "Invalid CMD terminator", err_args);
-    ESP_LOGD(TAG, "CMD: %s", cmd);
+    ESP_LOGD(TAG, "Out: %s", cmd);
 
     SDI12_BUS_LOCK(bus);
     SDI12_APB_LOCK(bus);
@@ -498,7 +495,6 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, const char *buff
     if (ret == ESP_OK)
     {
         ret = read_response_line(bus, timeout);
-        ESP_LOGD(TAG, "RESP: %s", bus->response_buffer);
 
         if (ret == ESP_OK)
         {
@@ -535,7 +531,6 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, const char *buff
                 if (seconds > 0)
                 {
                     ret = read_response_line(bus, seconds * 1000);
-                    ESP_LOGD(TAG, "RESP: %s", bus->response_buffer);
 
                     if (ret == ESP_OK && strlen(bus->response_buffer) > 0)
                     {
@@ -585,6 +580,9 @@ err:
 
 sdi12_bus_t *sdi12_bus_init(sdi12_bus_config_t *config)
 {
+#if CONFIG_SDI12_ENABLE_DEBUG
+    esp_log_level_set(TAG, ESP_LOG_DEBUG);
+#endif
     SDI12_CHECK(config, "Config is NULL", err);
     SDI12_CHECK(IS_VALID_PIN(config->gpio_num), "Invalid GPIO pin", err);
 

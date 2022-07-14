@@ -36,26 +36,6 @@ static uint8_t buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
 static char response[85] = "";
 bool check_crc = false;
 
-uint8_t check_wait_to_service_request(const char *buffer)
-{
-    uint8_t seconds = 0;
-
-    if (strlen(buffer) != 5)
-    {
-        return 0;
-    }
-
-    uint8_t factor = 100;
-
-    for (uint8_t i = 1; i < 4; i++)
-    {
-        seconds += (buffer[i] - '0') * factor;
-        factor /= 10;
-    }
-
-    return seconds;
-}
-
 void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
     /* initialization */

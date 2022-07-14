@@ -43,7 +43,7 @@
 
 #define BUF_SIZE (1024)
 
-static const char *TAG = "sdi12-uart-terminal";
+static const char *TAG = "SDI12-UART-TERMINAL";
 
 static char response[85] = "";
 static sdi12_bus_t *sdi12_bus;

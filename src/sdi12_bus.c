@@ -72,7 +72,7 @@ struct sdi12_bus
     {                                                                             \
         if (!(a))                                                                 \
         {                                                                         \
-            ESP_LOGE(TAG, "%s(%d): " str, __FUNCTION__, __LINE__, ##__VA_ARGS__); \
+            ESP_LOGE(TAG, str, ##__VA_ARGS__); \
             goto goto_tag;                                                        \
         }                                                                         \
     } while (0)
@@ -481,7 +481,7 @@ static esp_err_t sdi12_check_crc(const char *response)
 esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, const char *buffer, size_t buffer_length, bool check_crc, uint32_t timeout)
 {
     SDI12_CHECK(cmd, "CMD error", err_args);
-    SDI12_CHECK(!((cmd[0] > '0' && cmd[0] < '9') || (cmd[0] > 'a' && cmd[0] < 'z') || (cmd[0] > 'A' && cmd[0] < 'Z')), "Invalidad sensor address", err_args);
+    SDI12_CHECK(((cmd[0] >= '0' && cmd[0] <= '9') || (cmd[0] >= 'a' && cmd[0] <= 'z') || (cmd[0] >= 'A' && cmd[0] <= 'Z') || cmd[0] == '?'), "Invalidad sensor address", err_args);
 
     uint8_t cmd_len = strlen(cmd);
     SDI12_CHECK(cmd[cmd_len - 1] == '!', "Invalid CMD terminator", err_args);

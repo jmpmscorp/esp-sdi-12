@@ -18,31 +18,33 @@ struct sdi12_bus
     rmt_channel_t rmt_tx_channel;
     rmt_channel_t rmt_rx_channel;
     rmt_mode_t rmt_mode;
-    uint16_t response_buffer_length;
-    char *response_buffer;
     sdi12_bus_timing_t timing;
-    xSemaphoreHandle api_mutex;
-    // With 4.0 and 4.1 versions, RMT can't be configured to use REF_TICK as source clock. This feature is added in 4.2+ version, so we need lock APB during RMT operation if DFS is enabled
-#if CONFIG_PM_ENABLE && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0))
+    xSemaphoreHandle mutex;
+    // With 4.0 and 4.1 versions, RMT can't be configured to use REF_TICK as source clock. This feature is added in 4.2+
+    // version, so we need lock APB during RMT operation if DFS is enabled
+#if CONFIG_PM_ENABLE                                                                                                   \
+    && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0))
     esp_pm_lock_handle_t pm_lock;
 #endif
 };
 
-#define SDI12_BUS_LOCK(b) \
-    if (b->api_mutex)     \
-    xSemaphoreTake(b->api_mutex, portMAX_DELAY)
+#define SDI12_BUS_LOCK(b)                                                                                              \
+    if (b->mutex)                                                                                                  \
+    xSemaphoreTake(b->mutex, portMAX_DELAY)
 
-#define SDI12_BUS_UNLOCK(b) \
-    if (b->api_mutex)       \
-    xSemaphoreGive(b->api_mutex)
+#define SDI12_BUS_UNLOCK(b)                                                                                            \
+    if (b->mutex)                                                                                                  \
+    xSemaphoreGive(b->mutex)
 
-#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
+#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0)                                                \
+    && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
 #define SDI12_APB_LOCK(b) esp_pm_lock_acquire(b->pm_lock)
 #else
 #define SDI12_APB_LOCK(b)
 #endif
 
-#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
+#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0)                                                \
+    && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
 #define SDI12_APB_UNLOCK(b) esp_pm_lock_release(b->pm_lock)
 #else
 #define SDI12_APB_UNLOCK(b)
@@ -56,25 +58,23 @@ struct sdi12_bus
  */
 #define RESPONSE_BUFFER_DEFAULT_SIZE (82)
 
-#define SDI12_BREAK_US (12200)
+#define SDI12_BREAK_US              (12200)
 #define SDI12_POST_BREAK_MARKING_US (8333)
-#define SDI12_BIT_WIDTH_US (833)
+#define SDI12_BIT_WIDTH_US          (833)
 
 #define SDI12_MARKING (0)
 #define SDI12_SPACING (1)
 
 #define SDI12_CRC_POLY 0xA001
 
-#define SDI12_CHECK_ADDRESS(bus, address) (bus->response_buffer[0] == address ? ESP_OK : ESP_FAIL)
-
-#define SDI12_CHECK(a, str, goto_tag, ...)                                        \
-    do                                                                            \
-    {                                                                             \
-        if (!(a))                                                                 \
-        {                                                                         \
-            ESP_LOGE(TAG, str, ##__VA_ARGS__); \
-            goto goto_tag;                                                        \
-        }                                                                         \
+#define SDI12_CHECK(a, str, goto_tag, ...)                                                                             \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (!(a))                                                                                                      \
+        {                                                                                                              \
+            ESP_LOGE(TAG, str, ##__VA_ARGS__);                                                                         \
+            goto goto_tag;                                                                                             \
+        }                                                                                                              \
     } while (0)
 
 #if CONFIG_IDF_TARGET_ESP32
@@ -123,7 +123,10 @@ static esp_err_t config_rmt_as_tx(sdi12_bus_t *bus)
 #endif
 
     SDI12_CHECK(rmt_config(&rmt_tx) == ESP_OK, "Error on RMT TX config", err);
-    SDI12_CHECK(rmt_driver_install(bus->rmt_tx_channel, 0, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK, "RMT TX install error", err);
+    SDI12_CHECK(
+        rmt_driver_install(bus->rmt_tx_channel, 0, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED)
+            == ESP_OK,
+        "RMT TX install error", err);
     bus->rmt_mode = RMT_MODE_TX;
 
     return ESP_OK;
@@ -165,7 +168,10 @@ static esp_err_t config_rmt_as_rx(sdi12_bus_t *bus)
 #endif
 
     SDI12_CHECK(rmt_config(&rmt_rx) == ESP_OK, "Error on RMT RX config", err);
-    SDI12_CHECK(rmt_driver_install(bus->rmt_rx_channel, 1024, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK, "RMT RX install error", err);
+    SDI12_CHECK(
+        rmt_driver_install(bus->rmt_rx_channel, 1024, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED)
+            == ESP_OK,
+        "RMT RX install error", err);
     bus->rmt_mode = RMT_MODE_RX;
 
     return ESP_OK;
@@ -184,12 +190,10 @@ err:
  *      - ESP_ERR_NOT_FOUND SDI12 end isn't found
  *      - ESP_OK SDI12 end is found and parse ok
  */
-static esp_err_t parse_response(sdi12_bus_t *bus, rmt_item32_t *items, size_t items_length)
+static esp_err_t parse_response(sdi12_bus_t *bus, rmt_item32_t *items, size_t items_length, char *out_buffer,
+    size_t out_buffer_length)
 {
-    SDI12_CHECK(bus, "", err_arg);
-    SDI12_CHECK(items && items_length > 0, "", err_arg);
-
-    memset(bus->response_buffer, '\0', bus->response_buffer_length);
+    memset(out_buffer, '\0', out_buffer_length);
 
     size_t char_index = 0;
     size_t item_index = 0;
@@ -219,71 +223,75 @@ static esp_err_t parse_response(sdi12_bus_t *bus, rmt_item32_t *items, size_t it
 
         while (number_of_bits > 0 && number_of_bits < 10)
         {
-
             switch (bit_counter)
             {
-
-            // start bit
-            case 0:
-                // We need to found start bit.
-                if (level == 1)
-                {
-                    ++bit_counter;
-                    parity = false;
-                    c = 0;
-                }
-
-                break;
-
-            // parity bit
-            case 8:
-                if (parity != level)
-                {
-                    ESP_LOGE(TAG, "Reception parity error");
-                    return ESP_FAIL;
-                }
-
-                if (char_index < bus->response_buffer_length)
-                {
-                    bus->response_buffer[char_index] = c;
-
-                    if (bus->response_buffer[char_index] == '\n' && bus->response_buffer[char_index - 1] == '\r')
+                // start bit
+                case 0:
+                    // We need to found start bit.
+                    if (level == 1)
                     {
-                        bus->response_buffer[char_index - 1] = '\0'; // Delete \r\n from response buffer
-                        ESP_LOGD(TAG, "In: %s", bus->response_buffer);
-                        return ESP_OK;
+                        ++bit_counter;
+                        parity = false;
+                        c = 0;
                     }
 
-                    ++char_index;
-                }
+                    break;
 
-                ++bit_counter;
-                break;
+                // parity bit
+                case 8:
+                    if (parity != level)
+                    {
+                        ESP_LOGE(TAG, "Reception parity error");
+                        return ESP_FAIL;
+                    }
 
-            // stop bit
-            case 9:
-                if (level != 0)
-                {
-                    ESP_LOGE(TAG, "Reception Stop bit error");
-                    return ESP_FAIL;
-                }
+                    if (char_index < out_buffer_length)
+                    {
+                        out_buffer[char_index] = c;
 
-                bit_counter = 0;
-                break;
+                        if (out_buffer[char_index] == '\n' && out_buffer[char_index - 1] == '\r')
+                        {
+                            out_buffer[char_index - 1] = '\0'; // Delete \r\n from response buffer
+                            ESP_LOGD(TAG, "In: %s", out_buffer);
+                            return ESP_OK;
+                        }
 
-            // data bits. Remember inverse logic
-            default:
-                if (level == 0)
-                {
-                    c |= (1 << (bit_counter - 1));
-                }
-                else
-                {
-                    parity = !parity;
-                }
+                        ++char_index;
+                    }
+                    else
+                    {
+                        out_buffer[out_buffer_length - 1] = '\0';
+                        ESP_LOGE(TAG, "Out buffer too small");
+                        return ESP_ERR_INVALID_SIZE;
+                    }
 
-                ++bit_counter;
-                break;
+                    ++bit_counter;
+                    break;
+
+                // stop bit
+                case 9:
+                    if (level != 0)
+                    {
+                        ESP_LOGE(TAG, "Reception Stop bit error");
+                        return ESP_FAIL;
+                    }
+
+                    bit_counter = 0;
+                    break;
+
+                // data bits. Remember inverse logic
+                default:
+                    if (level == 0)
+                    {
+                        c |= (1 << (bit_counter - 1));
+                    }
+                    else
+                    {
+                        parity = !parity;
+                    }
+
+                    ++bit_counter;
+                    break;
             }
 
             --number_of_bits;
@@ -291,12 +299,10 @@ static esp_err_t parse_response(sdi12_bus_t *bus, rmt_item32_t *items, size_t it
     }
 
     return ESP_ERR_NOT_FOUND;
-
-err_arg:
-    return ESP_ERR_INVALID_ARG;
 }
 
-static esp_err_t read_response_line(sdi12_bus_t *bus, uint32_t timeout)
+static esp_err_t read_response_line(sdi12_bus_t *bus, char *out_buffer, size_t out_buffer_length,
+    uint32_t timeout)
 {
     SDI12_CHECK(bus, "BUS is NULL", err);
 
@@ -310,7 +316,7 @@ static esp_err_t read_response_line(sdi12_bus_t *bus, uint32_t timeout)
     }
 
     rmt_item32_t *items;
-    size_t length = 0;
+    size_t items_length = 0;
     uint32_t aux_timeout = timeout != 0 ? timeout : SDI12_DEFAULT_RESPONSE_TIMEOUT;
     RingbufHandle_t rb = NULL;
 
@@ -320,24 +326,23 @@ static esp_err_t read_response_line(sdi12_bus_t *bus, uint32_t timeout)
     {
         do
         {
-            items = (rmt_item32_t *)xRingbufferReceive(rb, &length, pdMS_TO_TICKS(aux_timeout));
+            items = (rmt_item32_t *)xRingbufferReceive(rb, &items_length, pdMS_TO_TICKS(aux_timeout));
 
             if (items)
             {
-
                 // for (size_t i = 0; i < length; i++)
                 // {
                 //     printf("Level: %d | Duration: %d \n", items[i].level0, items[i].duration0);
                 //     printf("Level: %d | Duration: %d \n", items[i].level1, items[i].duration1);
                 // }
-                ret = parse_response(bus, items, length);
+                ret = parse_response(bus, items, items_length, out_buffer, out_buffer_length);
             }
             else
             {
                 ret = ESP_ERR_TIMEOUT;
             }
 
-        } while (ret == ESP_OK && strlen(bus->response_buffer) == 0); // Skip empty lines. Pure "\r\n" lines.
+        } while (ret == ESP_OK && strlen(out_buffer) == 0); // Skip empty lines. Pure "\r\n" lines.
     }
 
     return ret;
@@ -442,7 +447,7 @@ static esp_err_t sdi12_check_crc(const char *response)
     }
 
     uint16_t crc = 0;
-    char crc_str[4] = {0};
+    char crc_str[4] = { 0 };
 
     for (uint8_t i = 0; i < response_len - 3; ++i)
     {
@@ -478,12 +483,19 @@ static esp_err_t sdi12_check_crc(const char *response)
     }
 }
 
-esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, const char *buffer, size_t buffer_length, bool check_crc, uint32_t timeout)
+esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, char *out_buffer, size_t out_buffer_length,
+    bool check_crc, uint32_t timeout)
 {
-    SDI12_CHECK(cmd, "CMD error", err_args);
-    SDI12_CHECK(((cmd[0] >= '0' && cmd[0] <= '9') || (cmd[0] >= 'a' && cmd[0] <= 'z') || (cmd[0] >= 'A' && cmd[0] <= 'Z') || cmd[0] == '?'), "Invalidad sensor address", err_args);
-
     uint8_t cmd_len = strlen(cmd);
+
+    SDI12_CHECK(cmd, "CMD error", err_args);
+    SDI12_CHECK(out_buffer, "No out buffer", err_args);
+    SDI12_CHECK(out_buffer_length > 0, "Out buffer length error", err_args);
+
+    SDI12_CHECK(((cmd[0] >= '0' && cmd[0] <= '9') || (cmd[0] >= 'a' && cmd[0] <= 'z')
+                    || (cmd[0] >= 'A' && cmd[0] <= 'Z') || cmd[0] == '?'),
+        "Invalidad sensor address", err_args);
+
     SDI12_CHECK(cmd[cmd_len - 1] == '!', "Invalid CMD terminator", err_args);
     ESP_LOGD(TAG, "Out: %s", cmd);
 
@@ -494,24 +506,19 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, const char *buff
 
     if (ret == ESP_OK)
     {
-        ret = read_response_line(bus, timeout);
+        ret = read_response_line(bus, out_buffer, out_buffer_length, timeout);
 
         if (ret == ESP_OK)
         {
             if ((cmd[1] == 'D' || cmd[1] == 'R') && check_crc)
             {
-                ret = sdi12_check_crc(bus->response_buffer);
+                ret = sdi12_check_crc(out_buffer);
 
                 if (ret == ESP_OK)
                 {
-                    uint8_t response_len = strlen(bus->response_buffer);
-                    bus->response_buffer[response_len - 3] = '\0'; // Clear CRC string
+                    uint8_t response_len = strlen(out_buffer);
+                    out_buffer[response_len - 3] = '\0'; // Clear CRC string
                 }
-            }
-
-            if (buffer)
-            {
-                snprintf((char *)buffer, buffer_length, bus->response_buffer);
             }
 
             // Command aM..! and aV..! require service request
@@ -523,18 +530,20 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, const char *buff
 
                 for (uint8_t i = 1; i < 4; i++)
                 {
-                    seconds += (bus->response_buffer[i] - '0') * factor;
+                    seconds += (out_buffer[i] - '0') * factor;
                     factor /= 10;
                 }
 
                 // Only necessary if seconds is equal or greather than 1
                 if (seconds > 0)
                 {
-                    ret = read_response_line(bus, seconds * 1000);
+                    char temp_buf[4] = { 0 };
 
-                    if (ret == ESP_OK && strlen(bus->response_buffer) > 0)
+                    ret = read_response_line(bus, temp_buf, sizeof(temp_buf), seconds * 1000);
+
+                    if (ret == ESP_OK && strlen(temp_buf) > 0)
                     {
-                        ret = bus->response_buffer[0] == cmd[0] ? ESP_OK : ESP_FAIL;
+                        ret = temp_buf[0] == cmd[0] ? ESP_OK : ESP_FAIL;
                     }
                 }
             }
@@ -566,11 +575,6 @@ esp_err_t sdi12_bus_deinit(sdi12_bus_t *bus)
         ret = rmt_driver_uninstall(bus->rmt_rx_channel);
     }
 
-    if (bus->response_buffer)
-    {
-        free(bus->response_buffer);
-    }
-
     free(bus);
 
     return ret;
@@ -589,30 +593,27 @@ sdi12_bus_t *sdi12_bus_init(sdi12_bus_config_t *config)
     sdi12_bus_t *bus = calloc(1, sizeof(sdi12_bus_t));
     SDI12_CHECK(bus, "Can't allocate bus", err);
 
-    bus->response_buffer_length = config->response_buffer_length > RESPONSE_BUFFER_DEFAULT_SIZE ? config->response_buffer_length : RESPONSE_BUFFER_DEFAULT_SIZE;
-    bus->response_buffer = calloc(bus->response_buffer_length, sizeof(char));
-    SDI12_CHECK(bus->response_buffer, "Can't allocate response buffer", err_buf);
-
     bus->gpio_num = config->gpio_num;
     bus->rmt_tx_channel = config->rmt_tx_channel;
     bus->rmt_rx_channel = config->rmt_rx_channel;
     bus->rmt_mode = RMT_MODE_MAX; // Force firts time installation
     bus->timing.break_us = config->bus_timing.break_us != 0 ? config->bus_timing.break_us : SDI12_BREAK_US;
-    bus->timing.post_break_marking_us = config->bus_timing.post_break_marking_us != 0 ? config->bus_timing.post_break_marking_us : SDI12_POST_BREAK_MARKING_US;
+    bus->timing.post_break_marking_us = config->bus_timing.post_break_marking_us != 0
+                                            ? config->bus_timing.post_break_marking_us
+                                            : SDI12_POST_BREAK_MARKING_US;
 
-    bus->api_mutex = xSemaphoreCreateMutex();
+    bus->mutex = xSemaphoreCreateMutex();
 
-    SDI12_CHECK(bus->api_mutex, "Mutex allocation error", err_mutex);
+    SDI12_CHECK(bus->mutex, "Mutex allocation error", err_mutex);
 
-#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
+#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0)                                                \
+    && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
     esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 1, "SDI12_PM_LOCK", &bus->pm_lock);
 #endif
 
     return bus;
 
 err_mutex:
-    free(bus->response_buffer);
-err_buf:
     free(bus);
 err:
     return NULL;

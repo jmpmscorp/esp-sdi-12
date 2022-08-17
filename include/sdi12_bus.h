@@ -30,7 +30,6 @@ extern "C"
         uint8_t gpio_num;
         rmt_channel_t rmt_tx_channel;
         rmt_channel_t rmt_rx_channel;
-        uint8_t response_buffer_length;
         sdi12_bus_timing_t bus_timing;
     } sdi12_bus_config_t;
 
@@ -55,9 +54,10 @@ extern "C"
      *      ESP_OK
      *      ESP_ERR_TIMEOUT
      *      ESP_ERR_FAIL  
-     *      ESP_ERR_INVALID_ARG  
+     *      ESP_ERR_INVALID_ARG
+     *      ESP_ERR_INVALID_SIZE
      */
-    esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, const char *out_buffer, size_t out_buffer_length, bool check_crc, uint32_t timeout);
+    esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, char *out_buffer, size_t out_buffer_length, bool check_crc, uint32_t timeout);
 
 
     /**

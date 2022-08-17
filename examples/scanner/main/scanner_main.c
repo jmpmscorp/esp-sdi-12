@@ -61,5 +61,5 @@ void app_main(void)
     devs += find_devices_in_range(bus, 'a', 'z');
     devs += find_devices_in_range(bus, 'A', 'Z');
 
-    ESP_LOGI(TAG, "End scan. Found %d", devs);
+    ESP_LOGI(TAG, "End scan. Found %d devices", devs);
 }

@@ -52,7 +52,7 @@ static void uart_terminal_task(void *arg)
 {
     // Configure a temporary buffer for the incoming data
     uint8_t *data = (uint8_t *)malloc(BUF_SIZE);
-    bool check_crc = false;
+    bool crc = false;
 
     while (1)
     {
@@ -67,7 +67,7 @@ static void uart_terminal_task(void *arg)
             data[len] = '\0';
             ESP_LOGI(TAG, "Got data (%d bytes): %s", len, data);
 
-            ret = sdi12_bus_send_cmd(sdi12_bus, (const char *)data, response, sizeof(response), check_crc, 0);
+            ret = sdi12_bus_send_cmd(sdi12_bus, (const char *)data, crc, response, sizeof(response), 0);
             uart_write_bytes(TERMINAL_UART_PORT_NUM, (const char *)response, strlen(response));
 
             if (ret != ESP_OK)
@@ -77,7 +77,7 @@ static void uart_terminal_task(void *arg)
 
             if (data[1] == 'M' || data[1] == 'C' || data[1] == 'R')
             {
-                check_crc = data[2] == 'C' ? true : false;
+                crc = data[2] == 'C' ? true : false;
             }
         }
 

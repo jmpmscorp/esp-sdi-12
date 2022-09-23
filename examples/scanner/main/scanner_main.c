@@ -24,13 +24,13 @@ uint16_t find_devices_in_range(sdi12_bus_t *bus, char start_address, char end_ad
         cmd_ack[0] = addr;
         cmd_id[0] = addr;
 
-        esp_err_t ret = sdi12_bus_send_cmd(bus, cmd_ack, response, sizeof(response), false, 500);
+        esp_err_t ret = sdi12_bus_send_cmd(bus, cmd_ack, false, response, sizeof(response), 500);
 
         if (ret == ESP_OK && strlen(response) > 0 && response[0] == addr)
         {
             ++devs;
 
-            ret = sdi12_bus_send_cmd(bus, cmd_id, response, sizeof(response), false, 0);
+            ret = sdi12_bus_send_cmd(bus, cmd_id, false, response, sizeof(response), 0);
 
             if (ret == ESP_OK && strlen(response) > 0)
             {

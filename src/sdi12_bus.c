@@ -11,6 +11,7 @@
 #include "freertos/semphr.h"
 
 #include "sdi12_bus.h"
+#include "sdi12_common.h"
 
 struct sdi12_bus
 {
@@ -22,29 +23,26 @@ struct sdi12_bus
     xSemaphoreHandle mutex;
     // With 4.0 and 4.1 versions, RMT can't be configured to use REF_TICK as source clock. This feature is added in 4.2+
     // version, so we need lock APB during RMT operation if DFS is enabled
-#if CONFIG_PM_ENABLE                                                                                                   \
-    && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0))
+#if CONFIG_PM_ENABLE && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0))
     esp_pm_lock_handle_t pm_lock;
 #endif
 };
 
-#define SDI12_BUS_LOCK(b)                                                                                              \
-    if (b->mutex)                                                                                                  \
+#define SDI12_BUS_LOCK(b)                                                                                                                                      \
+    if (b->mutex)                                                                                                                                              \
     xSemaphoreTake(b->mutex, portMAX_DELAY)
 
-#define SDI12_BUS_UNLOCK(b)                                                                                            \
-    if (b->mutex)                                                                                                  \
+#define SDI12_BUS_UNLOCK(b)                                                                                                                                    \
+    if (b->mutex)                                                                                                                                              \
     xSemaphoreGive(b->mutex)
 
-#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0)                                                \
-    && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
+#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
 #define SDI12_APB_LOCK(b) esp_pm_lock_acquire(b->pm_lock)
 #else
 #define SDI12_APB_LOCK(b)
 #endif
 
-#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0)                                                \
-    && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
+#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
 #define SDI12_APB_UNLOCK(b) esp_pm_lock_release(b->pm_lock)
 #else
 #define SDI12_APB_UNLOCK(b)
@@ -66,16 +64,6 @@ struct sdi12_bus
 #define SDI12_SPACING (1)
 
 #define SDI12_CRC_POLY 0xA001
-
-#define SDI12_CHECK(a, str, goto_tag, ...)                                                                             \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        if (!(a))                                                                                                      \
-        {                                                                                                              \
-            ESP_LOGE(TAG, str, ##__VA_ARGS__);                                                                         \
-            goto goto_tag;                                                                                             \
-        }                                                                                                              \
-    } while (0)
 
 #if CONFIG_IDF_TARGET_ESP32
 #define IS_VALID_PIN(p) ((p > 0 && p < 6) || (p > 11 && p < 34))
@@ -123,10 +111,8 @@ static esp_err_t config_rmt_as_tx(sdi12_bus_t *bus)
 #endif
 
     SDI12_CHECK(rmt_config(&rmt_tx) == ESP_OK, "Error on RMT TX config", err);
-    SDI12_CHECK(
-        rmt_driver_install(bus->rmt_tx_channel, 0, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED)
-            == ESP_OK,
-        "RMT TX install error", err);
+    SDI12_CHECK(rmt_driver_install(bus->rmt_tx_channel, 0, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK, "RMT TX install error",
+        err);
     bus->rmt_mode = RMT_MODE_TX;
 
     return ESP_OK;
@@ -168,9 +154,7 @@ static esp_err_t config_rmt_as_rx(sdi12_bus_t *bus)
 #endif
 
     SDI12_CHECK(rmt_config(&rmt_rx) == ESP_OK, "Error on RMT RX config", err);
-    SDI12_CHECK(
-        rmt_driver_install(bus->rmt_rx_channel, 1024, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED)
-            == ESP_OK,
+    SDI12_CHECK(rmt_driver_install(bus->rmt_rx_channel, 1024, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK,
         "RMT RX install error", err);
     bus->rmt_mode = RMT_MODE_RX;
 
@@ -190,8 +174,7 @@ err:
  *      - ESP_ERR_NOT_FOUND SDI12 end isn't found
  *      - ESP_OK SDI12 end is found and parse ok
  */
-static esp_err_t parse_response(sdi12_bus_t *bus, rmt_item32_t *items, size_t items_length, char *out_buffer,
-    size_t out_buffer_length)
+static esp_err_t parse_response(sdi12_bus_t *bus, rmt_item32_t *items, size_t items_length, char *out_buffer, size_t out_buffer_length)
 {
     memset(out_buffer, '\0', out_buffer_length);
 
@@ -301,8 +284,7 @@ static esp_err_t parse_response(sdi12_bus_t *bus, rmt_item32_t *items, size_t it
     return ESP_ERR_NOT_FOUND;
 }
 
-static esp_err_t read_response_line(sdi12_bus_t *bus, char *out_buffer, size_t out_buffer_length,
-    uint32_t timeout)
+static esp_err_t read_response_line(sdi12_bus_t *bus, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
 {
     SDI12_CHECK(bus, "BUS is NULL", err);
 
@@ -483,8 +465,7 @@ static esp_err_t sdi12_check_crc(const char *response)
     }
 }
 
-esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, char *out_buffer, size_t out_buffer_length,
-    bool check_crc, uint32_t timeout)
+esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
 {
     uint8_t cmd_len = strlen(cmd);
 
@@ -492,8 +473,7 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, char *out_buffer
     SDI12_CHECK(out_buffer, "No out buffer", err_args);
     SDI12_CHECK(out_buffer_length > 0, "Out buffer length error", err_args);
 
-    SDI12_CHECK(((cmd[0] >= '0' && cmd[0] <= '9') || (cmd[0] >= 'a' && cmd[0] <= 'z')
-                    || (cmd[0] >= 'A' && cmd[0] <= 'Z') || cmd[0] == '?'),
+    SDI12_CHECK(((cmd[0] >= '0' && cmd[0] <= '9') || (cmd[0] >= 'a' && cmd[0] <= 'z') || (cmd[0] >= 'A' && cmd[0] <= 'Z') || cmd[0] == '?'),
         "Invalidad sensor address", err_args);
 
     SDI12_CHECK(cmd[cmd_len - 1] == '!', "Invalid CMD terminator", err_args);
@@ -510,7 +490,7 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, char *out_buffer
 
         if (ret == ESP_OK)
         {
-            if ((cmd[1] == 'D' || cmd[1] == 'R') && check_crc)
+            if ((cmd[1] == 'D' || cmd[1] == 'R') && crc)
             {
                 ret = sdi12_check_crc(out_buffer);
 
@@ -520,11 +500,10 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, char *out_buffer
                     out_buffer[response_len - 3] = '\0'; // Clear CRC string
                 }
             }
-
-            // Command aM..! and aV..! require service request
-            // Response should be "atttn"
-            if (cmd[1] == 'M' || cmd[1] == 'V')
+            else if (cmd[1] == 'M' || cmd[1] == 'V' || cmd[1] == 'H')
             {
+                // Command aM..! and aV..! require service request
+                // Response should be "atttn", "atttnn" or "atttnnn"
                 uint16_t seconds = 0;
                 uint8_t factor = 100;
 
@@ -591,23 +570,20 @@ sdi12_bus_t *sdi12_bus_init(sdi12_bus_config_t *config)
     SDI12_CHECK(IS_VALID_PIN(config->gpio_num), "Invalid GPIO pin", err);
 
     sdi12_bus_t *bus = calloc(1, sizeof(sdi12_bus_t));
-    SDI12_CHECK(bus, "Can't allocate bus", err);
+    SDI12_CHECK(bus, "Can't allocate SDI12 bus", err);
 
     bus->gpio_num = config->gpio_num;
     bus->rmt_tx_channel = config->rmt_tx_channel;
     bus->rmt_rx_channel = config->rmt_rx_channel;
     bus->rmt_mode = RMT_MODE_MAX; // Force firts time installation
     bus->timing.break_us = config->bus_timing.break_us != 0 ? config->bus_timing.break_us : SDI12_BREAK_US;
-    bus->timing.post_break_marking_us = config->bus_timing.post_break_marking_us != 0
-                                            ? config->bus_timing.post_break_marking_us
-                                            : SDI12_POST_BREAK_MARKING_US;
+    bus->timing.post_break_marking_us = config->bus_timing.post_break_marking_us != 0 ? config->bus_timing.post_break_marking_us : SDI12_POST_BREAK_MARKING_US;
 
     bus->mutex = xSemaphoreCreateMutex();
 
     SDI12_CHECK(bus->mutex, "Mutex allocation error", err_mutex);
 
-#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0)                                                \
-    && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
+#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
     esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 1, "SDI12_PM_LOCK", &bus->pm_lock);
 #endif
 

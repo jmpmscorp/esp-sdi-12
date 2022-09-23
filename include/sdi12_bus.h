@@ -13,12 +13,6 @@ extern "C"
 
     typedef struct sdi12_bus sdi12_bus_t;
 
-    typedef enum
-    {
-        SDI12_D_READ,
-        SDI12_R_READ,
-    } sdi12_read_type_t;
-
     typedef struct
     {
         uint16_t break_us;
@@ -37,7 +31,7 @@ extern "C"
      * @brief Send command over the bus and waits ONLY for first response line (first <LF><CR> found).
      * 
      * @details AM!, AMx!, aMC!, aMCx!, aV! commands require a service request.
-     *          When service request command is issued, timeout is used for wait 'atttn' response line. However, send cmd proccess can take more time due to
+     *          When service request command is issued, timeout is used for wait 'atttn', 'atttnn' or 'atttnnn' response line. However, send cmd proccess can take more time due to
      *          'ttt' seconds. Function automatically calculates elapse time and waits for it. If there is no response, ESP_TIMEOUT is returned. On the other side,
      *          response (device address) is checked with cmd address. If comparison fails, ESP_FAIL is returned. 
      * 
@@ -57,7 +51,7 @@ extern "C"
      *      ESP_ERR_INVALID_ARG
      *      ESP_ERR_INVALID_SIZE
      */
-    esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, char *out_buffer, size_t out_buffer_length, bool check_crc, uint32_t timeout);
+    esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout);
 
 
     /**

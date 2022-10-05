@@ -115,7 +115,7 @@ err_args:
     return NULL;
 }
 
-esp_err_t sdi12_dev_ack_active(sdi12_dev_t *dev)
+esp_err_t sdi12_dev_acknowledge_active(sdi12_dev_t *dev, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
 
@@ -123,7 +123,7 @@ esp_err_t sdi12_dev_ack_active(sdi12_dev_t *dev)
     cmd[0] = dev->address;
 
     char out_buffer[3]; // Response should be a<CR><LF>
-    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, false, out_buffer, sizeof(out_buffer), SDI12_DEFAULT_RESPONSE_TIMEOUT);
+    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, false, out_buffer, sizeof(out_buffer), timeout);
 
     if (ret == ESP_OK)
     {
@@ -135,7 +135,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_change_address(sdi12_dev_t *dev, char new_address)
+esp_err_t sdi12_dev_change_address(sdi12_dev_t *dev, char new_address, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK(((new_address >= '0' && new_address <= '9') || (new_address >= 'a' && new_address <= 'z') || (new_address >= 'A' && new_address <= 'Z')),
@@ -146,7 +146,7 @@ esp_err_t sdi12_dev_change_address(sdi12_dev_t *dev, char new_address)
     cmd[2] = new_address;
 
     char out_buffer[3]; // Response should be 'new address'<CR><LF>
-    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, false, out_buffer, sizeof(out_buffer), SDI12_DEFAULT_RESPONSE_TIMEOUT);
+    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, false, out_buffer, sizeof(out_buffer), timeout);
 
     if (ret == ESP_OK)
     {
@@ -165,7 +165,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_read_identification(sdi12_dev_t *dev, char *out_buffer, size_t out_buffer_length)
+esp_err_t sdi12_dev_read_identification(sdi12_dev_t *dev, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
 
@@ -176,7 +176,7 @@ esp_err_t sdi12_dev_read_identification(sdi12_dev_t *dev, char *out_buffer, size
     // Response should be 'info'<CR><LF>. Info maximum length is 34
     if (out_buffer)
     {
-        ret = sdi12_bus_send_cmd(dev->bus, cmd, false, out_buffer, out_buffer_length, SDI12_DEFAULT_RESPONSE_TIMEOUT);
+        ret = sdi12_bus_send_cmd(dev->bus, cmd, false, out_buffer, out_buffer_length, timeout);
 
         if (ret == ESP_OK)
         {
@@ -191,7 +191,7 @@ esp_err_t sdi12_dev_read_identification(sdi12_dev_t *dev, char *out_buffer, size
     else
     {
         char temp_buf[38];
-        ret = sdi12_bus_send_cmd(dev->bus, cmd, false, temp_buf, sizeof(temp_buf), SDI12_DEFAULT_RESPONSE_TIMEOUT);
+        ret = sdi12_bus_send_cmd(dev->bus, cmd, false, temp_buf, sizeof(temp_buf), timeout);
 
         if (ret == ESP_OK)
         {
@@ -209,7 +209,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_address_query(sdi12_dev_t *dev, char *address)
+esp_err_t sdi12_dev_address_query(sdi12_dev_t *dev, char *address, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK(address, "NULL address", err_args);
@@ -217,7 +217,7 @@ esp_err_t sdi12_dev_address_query(sdi12_dev_t *dev, char *address)
     char cmd[] = "?!";
 
     char out_buffer[3]; // Response should be 'address'<CR><LF>
-    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, false, out_buffer, sizeof(out_buffer), SDI12_DEFAULT_RESPONSE_TIMEOUT);
+    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, false, out_buffer, sizeof(out_buffer), timeout);
 
     if (ret == ESP_OK)
     {
@@ -229,7 +229,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_start_measurement(sdi12_dev_t *dev, uint8_t m_index, bool crc, uint8_t *n_params)
+esp_err_t sdi12_dev_start_measurement(sdi12_dev_t *dev, uint8_t m_index, bool crc, uint8_t *n_params, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK((m_index <= 9), "Invalid M index", err_args);
@@ -254,7 +254,7 @@ esp_err_t sdi12_dev_start_measurement(sdi12_dev_t *dev, uint8_t m_index, bool cr
     cmd[index] = '\0';
 
     char out_buffer[8]; // Response should be 'atttn'<CR><LF>
-    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, crc, out_buffer, sizeof(out_buffer), SDI12_DEFAULT_RESPONSE_TIMEOUT);
+    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, crc, out_buffer, sizeof(out_buffer), timeout);
 
     if (ret == ESP_OK)
     {
@@ -271,7 +271,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_read_data(sdi12_dev_t *dev, uint8_t d_index, bool crc, char *out_buffer, size_t out_buffer_length)
+esp_err_t sdi12_dev_read_data(sdi12_dev_t *dev, uint8_t d_index, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK((d_index <= 9), "Invalid D index", err_args);
@@ -285,7 +285,7 @@ esp_err_t sdi12_dev_read_data(sdi12_dev_t *dev, uint8_t d_index, bool crc, char 
     cmd[index++] = '!';
     cmd[index] = '\0';
 
-    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, crc, out_buffer, out_buffer_length, SDI12_DEFAULT_RESPONSE_TIMEOUT);
+    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, crc, out_buffer, out_buffer_length, timeout);
 
     if (ret == ESP_OK)
     {
@@ -297,7 +297,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_start_verification(sdi12_dev_t *dev, uint8_t *n_params)
+esp_err_t sdi12_dev_start_verification(sdi12_dev_t *dev, uint8_t *n_params, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
 
@@ -305,7 +305,7 @@ esp_err_t sdi12_dev_start_verification(sdi12_dev_t *dev, uint8_t *n_params)
     cmd[0] = dev->address;
 
     char out_buffer[8]; // Response should be 'atttn'<CR><LF>
-    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, false, out_buffer, sizeof(out_buffer), SDI12_DEFAULT_RESPONSE_TIMEOUT);
+    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, false, out_buffer, sizeof(out_buffer), timeout);
 
     if (ret == ESP_OK)
     {
@@ -322,7 +322,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_start_concurrent_measurement(sdi12_dev_t *dev, const uint8_t c_index, bool crc, uint8_t *n_params)
+esp_err_t sdi12_dev_start_concurrent_measurement(sdi12_dev_t *dev, const uint8_t c_index, bool crc, uint8_t *n_params, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK(c_index <= 9, "Invalid C index", err_args);
@@ -347,7 +347,7 @@ esp_err_t sdi12_dev_start_concurrent_measurement(sdi12_dev_t *dev, const uint8_t
     cmd[index] = '\0';
 
     char out_buffer[8]; // Response should be 'atttnn'<CR><LF>
-    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, crc, out_buffer, sizeof(out_buffer), SDI12_DEFAULT_RESPONSE_TIMEOUT);
+    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, crc, out_buffer, sizeof(out_buffer), timeout);
 
     if (ret == ESP_OK)
     {
@@ -364,7 +364,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_read_continuos_measurement(sdi12_dev_t *dev, const uint8_t r_index, bool crc, char *out_buffer, size_t out_buffer_length)
+esp_err_t sdi12_dev_read_continuos_measurement(sdi12_dev_t *dev, const uint8_t r_index, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK(r_index <= 9, "Invalid R index", err_args);
@@ -378,7 +378,7 @@ esp_err_t sdi12_dev_read_continuos_measurement(sdi12_dev_t *dev, const uint8_t r
     cmd[index++] = '!';
     cmd[index] = '\0';
 
-    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, crc, out_buffer, out_buffer_length, SDI12_DEFAULT_RESPONSE_TIMEOUT);
+    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, cmd, crc, out_buffer, out_buffer_length, timeout);
 
     if (ret == ESP_OK)
     {
@@ -399,7 +399,7 @@ esp_err_t sdi12_dev_extended_cmd(sdi12_dev_t *dev, const char *cmd, bool crc, ch
     char full_cmd[10];
     snprintf(full_cmd, len + 3, "%c%s!", dev->address, cmd);
 
-    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, full_cmd, crc, out_buffer, out_buffer_length, SDI12_DEFAULT_RESPONSE_TIMEOUT);
+    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, full_cmd, crc, out_buffer, out_buffer_length, timeout);
 
     if (ret == ESP_OK)
     {
@@ -412,7 +412,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_read_identify_cmd(sdi12_dev_t *dev, const char *cmd, uint8_t *n_params)
+esp_err_t sdi12_dev_read_identify_cmd(sdi12_dev_t *dev, const char *cmd, uint8_t *n_params, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK(n_params, "Invalid n_params arg", err_args);
@@ -425,7 +425,7 @@ esp_err_t sdi12_dev_read_identify_cmd(sdi12_dev_t *dev, const char *cmd, uint8_t
 
     char out_buffer[10]; // Response should be 'atttn', 'atttnn' or 'atttnnn' plus <CR><LF>
 
-    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, full_cmd, false, out_buffer, sizeof(out_buffer), SDI12_DEFAULT_RESPONSE_TIMEOUT);
+    esp_err_t ret = sdi12_bus_send_cmd(dev->bus, full_cmd, false, out_buffer, sizeof(out_buffer), timeout);
 
     if (ret == ESP_OK)
     {
@@ -485,7 +485,7 @@ sdi12_dev_t *sdi12_dev_init(sdi12_bus_t *bus, char address)
 
     if (address == '?')
     {
-        if (sdi12_dev_address_query(dev, &dev->address) != ESP_OK)
+        if (sdi12_dev_address_query(dev, &dev->address, SDI12_DEFAULT_RESPONSE_TIMEOUT) != ESP_OK)
         {
             ESP_LOGE(TAG, "can't find address error");
             goto err_cmd;

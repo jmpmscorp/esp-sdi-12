@@ -16,11 +16,12 @@ extern "C"
 
     typedef struct sdi12_dev sdi12_dev_t;
 
+    char sdi12_dev_get_address(sdi12_dev_t *dev);
     sdi12_version_t sdi12_dev_get_sdi_version(sdi12_dev_t *dev);
-    char * sdi12_dev_get_vendor_id(sdi12_dev_t *dev);
-    char * sdi12_dev_get_model(sdi12_dev_t *dev);
-    char * sdi12_dev_get_model_version(sdi12_dev_t *dev);
-    char * sdi12_dev_get_optional_info(sdi12_dev_t *dev);
+    char *sdi12_dev_get_vendor_id(sdi12_dev_t *dev);
+    char *sdi12_dev_get_model(sdi12_dev_t *dev);
+    char *sdi12_dev_get_model_version(sdi12_dev_t *dev);
+    char *sdi12_dev_get_optional_info(sdi12_dev_t *dev);
 
     esp_err_t sdi12_dev_acknowledge_active(sdi12_dev_t *dev, uint32_t timeout);
     esp_err_t sdi12_dev_change_address(sdi12_dev_t *dev, char new_address, uint32_t timeout);

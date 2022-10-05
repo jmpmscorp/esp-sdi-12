@@ -70,6 +70,14 @@ static esp_err_t parse_info(sdi12_dev_t *dev, char *info_buffer)
     return ESP_OK;
 }
 
+char sdi12_dev_get_address(sdi12_dev_t *dev)
+{
+    SDI12_CHECK(dev, "NULL dev", err_args);
+    return dev->address;
+err_args:
+    return '?';
+}
+
 sdi12_version_t sdi12_dev_get_sdi_version(sdi12_dev_t *dev)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
@@ -485,7 +493,7 @@ sdi12_dev_t *sdi12_dev_init(sdi12_bus_t *bus, char address)
 
     if (address == '?')
     {
-        if (sdi12_dev_address_query(dev, &dev->address, SDI12_DEFAULT_RESPONSE_TIMEOUT) != ESP_OK)
+        if (sdi12_dev_address_query(dev, &dev->address, 500) != ESP_OK)
         {
             ESP_LOGE(TAG, "can't find address error");
             goto err_cmd;
@@ -495,7 +503,7 @@ sdi12_dev_t *sdi12_dev_init(sdi12_bus_t *bus, char address)
     {
         dev->address = address;
 
-        if (sdi12_dev_ack_active(dev) != ESP_OK)
+        if (sdi12_dev_acknowledge_active(dev, 500) != ESP_OK)
         {
             ESP_LOGE(TAG, "can't find sensor with address '%c'", address);
             goto err_cmd;

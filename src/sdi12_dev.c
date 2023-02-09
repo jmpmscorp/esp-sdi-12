@@ -1,6 +1,10 @@
 #include <string.h>
 
-#include "sdi12_common.h"
+#if CONFIG_SDI12_ENABLE_DEBUG_LOG
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+#endif
+
+#include "sdi12_defs.h"
 #include "sdi12_dev.h"
 #include "esp_log.h"
 
@@ -13,21 +17,21 @@ typedef struct
     char *optional;
 } sdi12_dev_info_t;
 
-struct sdi12_dev
+typedef struct sdi12_dev
 {
     char address;
     sdi12_dev_info_t info;
-    sdi12_bus_t *bus;
-};
+    sdi12_bus_handle_t bus;
+}sdi12_dev_t;
 
 static const char *TAG = "sdi12-dev";
 
-static esp_err_t check_address(sdi12_dev_t *dev, char *buffer)
+static esp_err_t check_address(sdi12_dev_handle_t dev, char *buffer)
 {
     return dev->address == buffer[0] ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
 }
 
-static esp_err_t parse_info(sdi12_dev_t *dev, char *info_buffer)
+static esp_err_t parse_info(sdi12_dev_handle_t dev, char *info_buffer)
 {
     if (dev->info.vendor_id)
     {
@@ -70,7 +74,7 @@ static esp_err_t parse_info(sdi12_dev_t *dev, char *info_buffer)
     return ESP_OK;
 }
 
-char sdi12_dev_get_address(sdi12_dev_t *dev)
+char sdi12_dev_get_address(sdi12_dev_handle_t dev)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     return dev->address;
@@ -78,7 +82,7 @@ err_args:
     return '?';
 }
 
-sdi12_version_t sdi12_dev_get_sdi_version(sdi12_dev_t *dev)
+sdi12_version_t sdi12_dev_get_sdi_version(sdi12_dev_handle_t dev)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     return dev->info.sdi12_version;
@@ -87,7 +91,7 @@ err_args:
     return SDI12_VERSION_UNKNOWN;
 }
 
-char *sdi12_dev_get_vendor_id(sdi12_dev_t *dev)
+char *sdi12_dev_get_vendor_id(sdi12_dev_handle_t dev)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     return dev->info.vendor_id;
@@ -96,7 +100,7 @@ err_args:
     return NULL;
 }
 
-char *sdi12_dev_get_model_version(sdi12_dev_t *dev)
+char *sdi12_dev_get_model_version(sdi12_dev_handle_t dev)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     return dev->info.model_version;
@@ -105,7 +109,7 @@ err_args:
     return NULL;
 }
 
-char *sdi12_dev_get_model(sdi12_dev_t *dev)
+char *sdi12_dev_get_model(sdi12_dev_handle_t dev)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     return dev->info.model;
@@ -114,7 +118,7 @@ err_args:
     return NULL;
 }
 
-char *sdi12_dev_get_optional_info(sdi12_dev_t *dev)
+char *sdi12_dev_get_optional_info(sdi12_dev_handle_t dev)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     return dev->info.optional;
@@ -123,7 +127,7 @@ err_args:
     return NULL;
 }
 
-esp_err_t sdi12_dev_acknowledge_active(sdi12_dev_t *dev, uint32_t timeout)
+esp_err_t sdi12_dev_acknowledge_active(sdi12_dev_handle_t dev, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
 
@@ -143,7 +147,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_change_address(sdi12_dev_t *dev, char new_address, uint32_t timeout)
+esp_err_t sdi12_dev_change_address(sdi12_dev_handle_t dev, char new_address, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK(((new_address >= '0' && new_address <= '9') || (new_address >= 'a' && new_address <= 'z') || (new_address >= 'A' && new_address <= 'Z')),
@@ -173,7 +177,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_read_identification(sdi12_dev_t *dev, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
+esp_err_t sdi12_dev_read_identification(sdi12_dev_handle_t dev, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
 
@@ -217,7 +221,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_address_query(sdi12_dev_t *dev, char *address, uint32_t timeout)
+esp_err_t sdi12_dev_address_query(sdi12_dev_handle_t dev, char *address, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK(address, "NULL address", err_args);
@@ -237,7 +241,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_start_measurement(sdi12_dev_t *dev, uint8_t m_index, bool crc, uint8_t *n_params, uint32_t timeout)
+esp_err_t sdi12_dev_start_measurement(sdi12_dev_handle_t dev, uint8_t m_index, bool crc, uint8_t *n_params, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK((m_index <= 9), "Invalid M index", err_args);
@@ -279,7 +283,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_read_data(sdi12_dev_t *dev, uint8_t d_index, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
+esp_err_t sdi12_dev_read_data(sdi12_dev_handle_t dev, uint8_t d_index, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK((d_index <= 9), "Invalid D index", err_args);
@@ -305,7 +309,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_start_verification(sdi12_dev_t *dev, uint8_t *n_params, uint32_t timeout)
+esp_err_t sdi12_dev_start_verification(sdi12_dev_handle_t dev, uint8_t *n_params, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
 
@@ -330,7 +334,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_start_concurrent_measurement(sdi12_dev_t *dev, const uint8_t c_index, bool crc, uint8_t *n_params, uint32_t timeout)
+esp_err_t sdi12_dev_start_concurrent_measurement(sdi12_dev_handle_t dev, const uint8_t c_index, bool crc, uint8_t *n_params, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK(c_index <= 9, "Invalid C index", err_args);
@@ -372,7 +376,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_read_continuos_measurement(sdi12_dev_t *dev, const uint8_t r_index, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
+esp_err_t sdi12_dev_read_continuos_measurement(sdi12_dev_handle_t dev, const uint8_t r_index, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK(r_index <= 9, "Invalid R index", err_args);
@@ -398,7 +402,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_extended_cmd(sdi12_dev_t *dev, const char *cmd, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
+esp_err_t sdi12_dev_extended_cmd(sdi12_dev_handle_t dev, const char *cmd, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK(cmd, "Invalid CMD", err_args);
@@ -420,7 +424,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t sdi12_dev_read_identify_cmd(sdi12_dev_t *dev, const char *cmd, uint8_t *n_params, uint32_t timeout)
+esp_err_t sdi12_dev_read_identify_cmd(sdi12_dev_handle_t dev, const char *cmd, uint8_t *n_params, uint32_t timeout)
 {
     SDI12_CHECK(dev, "NULL dev", err_args);
     SDI12_CHECK(n_params, "Invalid n_params arg", err_args);
@@ -450,7 +454,7 @@ err_args:
     return ESP_ERR_INVALID_ARG;
 }
 
-void sdi12_dev_deinit(sdi12_dev_t *dev)
+void sdi12_del_dev(sdi12_dev_handle_t dev)
 {
     if (!dev)
     {
@@ -480,13 +484,13 @@ void sdi12_dev_deinit(sdi12_dev_t *dev)
     free(dev);
 }
 
-sdi12_dev_t *sdi12_dev_init(sdi12_bus_t *bus, char address)
+sdi12_dev_handle_t sdi12_new_dev(sdi12_bus_handle_t bus, char address)
 {
     SDI12_CHECK(bus, "Invalid bus", err);
     SDI12_CHECK(((address >= '0' && address <= '9') || (address >= 'a' && address <= 'z') || (address >= 'A' && address <= 'Z') || address == '?'),
         "Invalidad sensor address", err);
 
-    sdi12_dev_t *dev = calloc(1, sizeof(sdi12_dev_t));
+    sdi12_dev_handle_t dev = calloc(1, sizeof(sdi12_dev_t));
     SDI12_CHECK(bus, "Can't allocate SDI12 device", err);
 
     dev->bus = bus;
@@ -513,7 +517,7 @@ sdi12_dev_t *sdi12_dev_init(sdi12_bus_t *bus, char address)
     return dev;
 
 err_cmd:
-    sdi12_dev_deinit(dev);
+    sdi12_del_dev(dev);
 err:
     return NULL;
 }

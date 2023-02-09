@@ -4,3 +4,6 @@ esp-sdi-12.code-workspace
 **/build/
 **/sdkconfig
 **/sdkconfig.old
+
+**/managed_components
+src_old

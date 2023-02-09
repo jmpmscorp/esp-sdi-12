@@ -1,19 +1,18 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_check.h"
 #include "esp_log.h"
 #include "esp_err.h"
 
 #include "sdi12_bus.h"
 
-#define SDI12_DATA_GPIO GPIO_NUM_2
-#define SDI12_RMT_TX_CHANNEL 0
-#define SDI12_RMT_RX_CHANNEL 0
+#define SDI12_DATA_GPIO CONFIG_EXAMPLE_SDI12_BUS_GPIO
 
 static const char *TAG = "SDI12-SCANNER";
-static char response[85] = {0};
+static char response[85] = { 0 };
 
-uint16_t find_devices_in_range(sdi12_bus_t *bus, char start_address, char end_address)
+uint16_t find_devices_in_range(sdi12_bus_handle_t bus, char start_address, char end_address)
 {
     uint16_t devs = 0;
     char cmd_ack[] = "_!";
@@ -37,6 +36,10 @@ uint16_t find_devices_in_range(sdi12_bus_t *bus, char start_address, char end_ad
                 ESP_LOGI(TAG, "Address: %c\tId: %s", addr, response + 1);
             }
         }
+        else
+        {
+            ESP_LOGI(TAG, "Address: %c\tNo found", addr);
+        }
     }
 
     return devs;
@@ -46,20 +49,22 @@ void app_main(void)
 {
     sdi12_bus_config_t config = {
         .gpio_num = SDI12_DATA_GPIO,
-        .rmt_tx_channel = SDI12_RMT_TX_CHANNEL,
-        .rmt_rx_channel = SDI12_RMT_RX_CHANNEL,
-        .bus_timing = {
-            .post_break_marking_us = 9000}};
+        .bus_timing = { 
+            .post_break_marking_us = 9000,
+        },
+    };
 
-    sdi12_bus_t *bus = sdi12_bus_init(&config);
+    sdi12_bus_handle_t sdi12_bus;
+
+    ESP_ERROR_CHECK(sdi12_new_bus(&config, &sdi12_bus));
 
     ESP_LOGI(TAG, "Scanning...");
 
     uint16_t devs = 0;
 
-    devs += find_devices_in_range(bus, '0', '9');
-    devs += find_devices_in_range(bus, 'a', 'z');
-    devs += find_devices_in_range(bus, 'A', 'Z');
+    devs += find_devices_in_range(sdi12_bus, '0', '9');
+    devs += find_devices_in_range(sdi12_bus, 'a', 'z');
+    devs += find_devices_in_range(sdi12_bus, 'A', 'Z');
 
     ESP_LOGI(TAG, "End scan. Found %d devices", devs);
 }

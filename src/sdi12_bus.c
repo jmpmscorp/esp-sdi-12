@@ -2,31 +2,34 @@
 #include <math.h>
 #include <sys/param.h>
 
-#include "esp_idf_version.h"
-
-#include "esp_log.h"
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
 
+#include "esp_check.h"
+
+#include "driver/rmt_tx.h"
+#include "driver/rmt_rx.h"
+#include "driver/rmt_encoder.h"
+
+#include "driver/gpio.h"
+
+#include "esp_log.h"
+
+#include "sdi12_defs.h"
 #include "sdi12_bus.h"
-#include "sdi12_common.h"
 
-struct sdi12_bus
+typedef struct sdi12_bus
 {
     uint8_t gpio_num;
-    rmt_channel_t rmt_tx_channel;
-    rmt_channel_t rmt_rx_channel;
-    rmt_mode_t rmt_mode;
     sdi12_bus_timing_t timing;
-    xSemaphoreHandle mutex;
-    // With 4.0 and 4.1 versions, RMT can't be configured to use REF_TICK as source clock. This feature is added in 4.2+
-    // version, so we need lock APB during RMT operation if DFS is enabled
-#if CONFIG_PM_ENABLE && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0))
-    esp_pm_lock_handle_t pm_lock;
-#endif
-};
+    rmt_channel_handle_t rmt_tx_channel;
+    rmt_channel_handle_t rmt_rx_channel;
+    rmt_encoder_t *copy_encoder;
+    QueueHandle_t receive_queue;
+    SemaphoreHandle_t mutex;
+} sdi12_bus_t;
 
 #define SDI12_BUS_LOCK(b)                                                                                                                                      \
     if (b->mutex)                                                                                                                                              \
@@ -36,49 +39,18 @@ struct sdi12_bus
     if (b->mutex)                                                                                                                                              \
     xSemaphoreGive(b->mutex)
 
-#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
-#define SDI12_APB_LOCK(b) esp_pm_lock_acquire(b->pm_lock)
-#else
-#define SDI12_APB_LOCK(b)
-#endif
-
-#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
-#define SDI12_APB_UNLOCK(b) esp_pm_lock_release(b->pm_lock)
-#else
-#define SDI12_APB_UNLOCK(b)
-#endif
-
 /**
  * Largest response, excluding response to extended commands, are receive from aDx! or aRx! commands
  * From specs 1.4, maximum number of characters returned in <values> field is limited to 75 bytes.
  * To this 75, we must add possible CRC(3 bytes), start address(1 bytes), <CR><LF> end and '\0' C string terminator.
  * Total is 82.
  */
-#define RESPONSE_BUFFER_DEFAULT_SIZE (82)
+#define SDI12_MAX_RESPONSE_CHARS (82)
 
-#define SDI12_BREAK_US              (12200)
-#define SDI12_POST_BREAK_MARKING_US (8333)
-#define SDI12_BIT_WIDTH_US          (833)
-
-#define SDI12_MARKING (0)
-#define SDI12_SPACING (1)
-
-#define SDI12_CRC_POLY 0xA001
-
-#if CONFIG_IDF_TARGET_ESP32
-#define IS_VALID_PIN(p) ((p > 0 && p < 6) || (p > 11 && p < 34))
-#elif CONFIG_IDF_TARGET_ESP32S2
-#define IS_VALID_PIN(p) ((p > 0 && p < 26) || (p >= 32 && p < 45))
-#elif CONFIG_IDF_TARGET_ESP32S3
-#define IS_VALID_PIN(p) ((p > 0 && p < 3) || (p > 3 && p <= 21) || (p > 32 && p < 48))
-#elif CONFIG_IDF_TARGET_ESP32C3
-#define IS_VALID_PIN(p) (!(p >= 12 && p <= 17))
-#endif
-
-static const char *TAG = "SDI12 BUS";
+static const char *TAG = "sdi12 bus";
 
 /**
- * @brief Configure RMT channel as Transmissor
+ * @brief Configure RMT channel as transmisor
  *
  * @param bus         bus object
  * @return esp_err_t
@@ -87,37 +59,32 @@ static const char *TAG = "SDI12 BUS";
  */
 static esp_err_t config_rmt_as_tx(sdi12_bus_t *bus)
 {
-    if (bus->rmt_mode == RMT_MODE_TX)
-    {
-        return ESP_OK;
-    }
-    else if (bus->rmt_mode == RMT_MODE_RX)
-    {
-        rmt_driver_uninstall(bus->rmt_rx_channel);
-    }
+    rmt_tx_channel_config_t tx_channel_config = {
+        .gpio_num = bus->gpio_num,        // GPIO number
+        .clk_src = RMT_CLK_SRC_DEFAULT,   // select source clock
+        .resolution_hz = 1 * 1000 * 1000, // 1MHz tick resolution, i.e. 1 tick = 1us
+        .mem_block_symbols = 64,          // memory block size, 64 * 4 = 256Bytes
+        .trans_queue_depth = 6,
+        .flags  = {
+            .io_loop_back = true,
+            .invert_out = false, // don't invert input signal
+            .with_dma = false,  // don't need DMA backend
+        }, 
+    };
 
-    rmt_config_t rmt_tx = RMT_DEFAULT_CONFIG_TX(bus->gpio_num, bus->rmt_tx_channel);
+    ESP_RETURN_ON_ERROR(rmt_new_tx_channel(&tx_channel_config, &bus->rmt_tx_channel), TAG, "create rmt tx channel error");
 
-// Configure REF_TICKS as clk source
-#if CONFIG_PM_ENABLE
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 2, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 3, 0)
-    rmt_tx.flags = RMT_CHANNEL_FLAGS_ALWAYS_ON;
-#elif ESP_IDF_VERSION == ESP_IDF_VERSION_VAL(4, 3, 0)
-    rmt_tx.flags = RMT_CHANNEL_FLAGS_AWARE_DFS;
-#endif
-
-    // REF_TICKS runs at 1MHz. RMT_DEFAULT_CONFIG_XX configure clk_div to 80, so we must ovewrite clk_div to 1
-    rmt_tx.clk_div = 1;
-#endif
-
-    SDI12_CHECK(rmt_config(&rmt_tx) == ESP_OK, "Error on RMT TX config", err);
-    SDI12_CHECK(rmt_driver_install(bus->rmt_tx_channel, 0, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK, "RMT TX install error",
-        err);
-    bus->rmt_mode = RMT_MODE_TX;
+    ESP_RETURN_ON_ERROR(rmt_enable(bus->rmt_tx_channel), TAG, "rmt tx enable error");
 
     return ESP_OK;
-err:
-    return ESP_FAIL;
+}
+
+static bool sdi12_rmt_receive_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_t *data, void *user_data)
+{
+    BaseType_t high_task_wakeup = pdFALSE;
+    QueueHandle_t receive_queue = (QueueHandle_t)user_data;
+    xQueueSendFromISR(receive_queue, data, &high_task_wakeup);
+    return high_task_wakeup == pdTRUE;
 }
 
 /**
@@ -130,56 +97,47 @@ err:
  */
 static esp_err_t config_rmt_as_rx(sdi12_bus_t *bus)
 {
-    if (bus->rmt_mode == RMT_MODE_RX)
-    {
-        return ESP_OK;
-    }
-    else if (bus->rmt_mode == RMT_MODE_TX)
-    {
-        rmt_driver_uninstall(bus->rmt_tx_channel);
-    }
+    rmt_rx_channel_config_t rx_channel_config = {
+        .gpio_num = bus->gpio_num,
+        .clk_src = RMT_CLK_SRC_DEFAULT,
+        .mem_block_symbols = 128,
+        .resolution_hz = 1 * 1000 * 1000, // 1MHz tick resolution, i.e. 1 tick = 1us
+        .flags = {
+            .io_loop_back = false,
+            .invert_in = false,
+            .with_dma = false,
+        },
+    };
+    ESP_RETURN_ON_ERROR(rmt_new_rx_channel(&rx_channel_config, &bus->rmt_rx_channel), TAG, "create rmt rx channel failed");
 
-    rmt_config_t rmt_rx = RMT_DEFAULT_CONFIG_RX(bus->gpio_num, bus->rmt_rx_channel);
-    rmt_rx.mem_block_num = 2;
-    rmt_rx.rx_config.filter_ticks_thresh = 250;
+    rmt_rx_event_callbacks_t cbs = {
+        .on_recv_done = sdi12_rmt_receive_done_callback,
+    };
 
-#if CONFIG_PM_ENABLE
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 2, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 3, 0)
-    rmt_rx.flags = RMT_CHANNEL_FLAGS_ALWAYS_ON | RMT_CHANNEL_FLAGS_INVERT_SIG;
-#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 3, 0)
-    rmt_rx.flags = RMT_CHANNEL_FLAGS_AWARE_DFS | RMT_CHANNEL_FLAGS_INVERT_SIG;
-#endif
-
-    rmt_rx.clk_div = 1;
-#endif
-
-    SDI12_CHECK(rmt_config(&rmt_rx) == ESP_OK, "Error on RMT RX config", err);
-    SDI12_CHECK(rmt_driver_install(bus->rmt_rx_channel, 1024, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK,
-        "RMT RX install error", err);
-    bus->rmt_mode = RMT_MODE_RX;
+    ESP_RETURN_ON_ERROR(rmt_rx_register_event_callbacks(bus->rmt_rx_channel, &cbs, bus->receive_queue), TAG, "error registering rx callback");
+    ESP_RETURN_ON_ERROR(rmt_enable(bus->rmt_rx_channel), TAG, "error enabling rx channel");
 
     return ESP_OK;
-err:
-    return ESP_FAIL;
 }
 
+
 /**
- * @brief Parse RMT items into char buffer. Stop when SDI12 response end (\r\n) is found
+ * @brief Parse RMT symbols into char buffer. Stop when SDI12 response end (\r\n) is found
  *
  * @param bus         bus object
- * @param items         received rmt items
- * @param items_length  received rmt items length
+ * @param raw_symbols         received rmt symbols
+ * @param symbols_length  received rmt symbols length
  * @return esp_err_t
- *      - ESP_ERR_INVALID_ARG bus or items are NULL or items_length <= 0
+ *      - ESP_ERR_INVALID_ARG bus or symbol are NULL or symbol_length <= 0
  *      - ESP_ERR_NOT_FOUND SDI12 end isn't found
  *      - ESP_OK SDI12 end is found and parse ok
  */
-static esp_err_t parse_response(sdi12_bus_t *bus, rmt_item32_t *items, size_t items_length, char *out_buffer, size_t out_buffer_length)
+static esp_err_t parse_response(sdi12_bus_t *bus, rmt_symbol_word_t *raw_symbols, size_t symbols_length, char *out_buffer, size_t out_buffer_length)
 {
     memset(out_buffer, '\0', out_buffer_length);
 
     size_t char_index = 0;
-    size_t item_index = 0;
+    size_t symbol_index = 0;
     bool level0 = 0; // False if level0, duration0 needed. True when level1, duration1
     uint8_t bit_counter = 0;
     uint8_t level;
@@ -187,19 +145,19 @@ static esp_err_t parse_response(sdi12_bus_t *bus, rmt_item32_t *items, size_t it
     char c = 0;
     bool parity = false;
 
-    while (item_index < items_length)
+    while (symbol_index < symbols_length)
     {
         if (!level0)
         {
-            level = items[item_index].level0;
-            // (items[index].duration0 + SDI12_BIT_WIDTH_US / 2) / SDI12_BIT_WIDTH_US -> Solve integer division round.
-            number_of_bits = (items[item_index].duration0 + SDI12_BIT_WIDTH_US / 2) / SDI12_BIT_WIDTH_US;
+            level = raw_symbols[symbol_index].level0;
+            // (raw_symbols[index].duration0 + SDI12_BIT_WIDTH_US / 2) / SDI12_BIT_WIDTH_US -> Solve integer division round.
+            number_of_bits = (raw_symbols[symbol_index].duration0 + SDI12_BIT_WIDTH_US / 2) / SDI12_BIT_WIDTH_US;
         }
         else
         {
-            level = items[item_index].level1;
-            number_of_bits = (items[item_index].duration1 + SDI12_BIT_WIDTH_US / 2) / SDI12_BIT_WIDTH_US;
-            ++item_index;
+            level = raw_symbols[symbol_index].level1;
+            number_of_bits = (raw_symbols[symbol_index].duration1 + SDI12_BIT_WIDTH_US / 2) / SDI12_BIT_WIDTH_US;
+            ++symbol_index;
         }
 
         level0 = !level0;
@@ -235,7 +193,7 @@ static esp_err_t parse_response(sdi12_bus_t *bus, rmt_item32_t *items, size_t it
                         if (out_buffer[char_index] == '\n' && out_buffer[char_index - 1] == '\r')
                         {
                             out_buffer[char_index - 1] = '\0'; // Delete \r\n from response buffer
-                            ESP_LOGD(TAG, "In: %s", out_buffer);
+                            ESP_LOGD(TAG, "RX: %s", out_buffer);
                             return ESP_OK;
                         }
 
@@ -286,134 +244,161 @@ static esp_err_t parse_response(sdi12_bus_t *bus, rmt_item32_t *items, size_t it
 
 static esp_err_t read_response_line(sdi12_bus_t *bus, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
 {
-    SDI12_CHECK(bus, "BUS is NULL", err);
+    ESP_RETURN_ON_FALSE(bus, ESP_ERR_INVALID_ARG, TAG, "bus is NULL");
 
     esp_err_t ret;
 
     ret = config_rmt_as_rx(bus);
+    // ret = rmt_enable(bus->rmt_rx_channel);
 
     if (ret != ESP_OK)
     {
         return ret;
     }
 
-    rmt_item32_t *items;
-    size_t items_length = 0;
+    rmt_symbol_word_t raw_symbols[128];
+    rmt_rx_done_event_data_t rx_data;
     uint32_t aux_timeout = timeout != 0 ? timeout : SDI12_DEFAULT_RESPONSE_TIMEOUT;
-    RingbufHandle_t rb = NULL;
 
-    ret = rmt_get_ringbuf_handle(bus->rmt_rx_channel, &rb);
-    ret = rmt_rx_start(bus->rmt_rx_channel, 1);
-    if (ret == ESP_OK && rb)
+    rmt_receive_config_t receive_config = {
+        .signal_range_min_ns = (SDI12_BIT_WIDTH_US - 50) * 1000, // the shortest duration for SDI12 signal is bit width
+        .signal_range_max_ns = (SDI12_BREAK_US + 200) * 1000,    // the longest duration for SDI12 signal is break signal
+    };
+
+    ret = rmt_receive(bus->rmt_rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config);
+
+    if (ret == ESP_OK)
     {
-        do
+        if (xQueueReceive(bus->receive_queue, &rx_data, pdMS_TO_TICKS(aux_timeout)) == pdPASS)
         {
-            items = (rmt_item32_t *)xRingbufferReceive(rb, &items_length, pdMS_TO_TICKS(aux_timeout));
-
-            if (items)
+            if (rx_data.num_symbols > 0)
             {
-                // for (size_t i = 0; i < length; i++)
+                // for (size_t i = 0; i < rx_data.num_symbols; i++)
                 // {
-                //     printf("Level: %d | Duration: %d \n", items[i].level0, items[i].duration0);
-                //     printf("Level: %d | Duration: %d \n", items[i].level1, items[i].duration1);
+                //     printf("Level: %d | Duration: %d \n", rx_data.received_symbols[i].level0, rx_data.received_symbols[i].duration0);
+                //     printf("Level: %d | Duration: %d \n", rx_data.received_symbols[i].level1, rx_data.received_symbols[i].duration1);
                 // }
-                ret = parse_response(bus, items, items_length, out_buffer, out_buffer_length);
-            }
-            else
-            {
-                ret = ESP_ERR_TIMEOUT;
-            }
 
-        } while (ret == ESP_OK && strlen(out_buffer) == 0); // Skip empty lines. Pure "\r\n" lines.
+                ret = parse_response(bus, rx_data.received_symbols, rx_data.num_symbols, out_buffer, out_buffer_length);
+            }
+        }
+        else
+        {
+            ESP_LOGD(TAG, "no rmt symbols received");
+
+            ret = ESP_ERR_TIMEOUT;
+        }
     }
 
+    rmt_disable(bus->rmt_rx_channel);
+    rmt_del_channel(bus->rmt_rx_channel);
     return ret;
+}
 
-err:
-    return ESP_ERR_INVALID_ARG;
+static void encode_cmd(sdi12_bus_timing_t *timing, const char *cmd, rmt_symbol_word_t *rmt_symbols_out, size_t rmt_symbols_len)
+{
+    size_t rmt_symbol_index = 0;
+    // Break + marking
+    rmt_symbols_out[rmt_symbol_index].level0 = 1;
+    rmt_symbols_out[rmt_symbol_index].duration0 = timing->break_us;
+    rmt_symbols_out[rmt_symbol_index].level1 = SDI12_MARKING;
+    rmt_symbols_out[rmt_symbol_index].duration1 = timing->post_break_marking_us;
+    ++rmt_symbol_index;
+
+    uint8_t char_index = 0;
+    size_t encode_len = rmt_symbols_len - 1; // Remove break + marking symbol
+
+    while (encode_len > 0)
+    {
+        // start from last time truncated encoding
+        char cur_byte = cmd[char_index];
+        uint8_t bit_index = 0;
+        uint8_t level_to_write;
+        bool parity_bit = false;
+
+        while ((encode_len > 0) && (bit_index < 10))
+        {
+            switch (bit_index)
+            {
+                case 0: // start bit
+                    rmt_symbols_out[rmt_symbol_index].level0 = SDI12_SPACING;
+                    rmt_symbols_out[rmt_symbol_index].duration0 = SDI12_BIT_WIDTH_US;
+                    break;
+
+                case 8: // parity bit
+                    rmt_symbols_out[rmt_symbol_index].level0 = parity_bit;
+                    rmt_symbols_out[rmt_symbol_index].duration0 = SDI12_BIT_WIDTH_US;
+
+                    break;
+
+                case 9: // stop bit
+                    rmt_symbols_out[rmt_symbol_index].level1 = SDI12_MARKING;
+                    rmt_symbols_out[rmt_symbol_index].duration1 = SDI12_BIT_WIDTH_US;
+                    break;
+
+                default: // case 1 to 7, char bits
+
+                    if (cur_byte & 0x01) // bit == 1; Inverse -> 0 to write
+                    {
+                        level_to_write = SDI12_MARKING;
+                    }
+                    else // bit == 1; Inverse -> 1 to write
+                    {
+                        level_to_write = SDI12_SPACING;
+                        parity_bit = !parity_bit;
+                    }
+
+                    if (bit_index % 2 == 0)
+                    {
+                        rmt_symbols_out[rmt_symbol_index].level0 = level_to_write;
+                        rmt_symbols_out[rmt_symbol_index].duration0 = SDI12_BIT_WIDTH_US;
+                    }
+                    else
+                    {
+                        rmt_symbols_out[rmt_symbol_index].level1 = level_to_write;
+                        rmt_symbols_out[rmt_symbol_index].duration1 = SDI12_BIT_WIDTH_US;
+                    }
+
+                    cur_byte >>= 1;
+
+                    break;
+            }
+
+            ++bit_index;
+            if (bit_index % 2 == 0)
+            {
+                ++rmt_symbol_index;
+                --encode_len;
+            }
+        }
+
+        ++char_index;
+    }
 }
 
 static esp_err_t write_cmd(sdi12_bus_t *bus, const char *cmd)
 {
-    if (!cmd)
-        return ESP_ERR_INVALID_ARG;
+    ESP_RETURN_ON_ERROR(config_rmt_as_tx(bus), TAG, "error on tx config");
 
-    uint8_t cursor = 0;
-    // Initial Break & marking + chars. Every char need 10 bits transfers so it need 5 rmt_items32
-    uint8_t rmt_items_length = 1 + strlen(cmd) * 5;
-    rmt_item32_t rmt_items[rmt_items_length];
+    // Initial Break & marking + chars. Every char need 10 bits transfers so it needs 5 rmt_symbol_word
+    size_t rmt_symbols_len = 1 + strlen(cmd) * 5;
+    rmt_symbol_word_t rmt_symbols[rmt_symbols_len];
 
-    // Break + marking
-    rmt_items[cursor].level0 = 1;
-    rmt_items[cursor].duration0 = bus->timing.break_us;
-    rmt_items[cursor].level1 = SDI12_MARKING;
-    rmt_items[cursor].duration1 = bus->timing.post_break_marking_us;
-    ++cursor;
+    encode_cmd(&bus->timing, cmd, rmt_symbols, rmt_symbols_len);
 
-    // vTaskDelay(pdMS_TO_TICKS(80));
-    // Data
+    rmt_transmit_config_t tx_config = {
+        .loop_count = 0,
+        .flags.eot_level = 0,
+    };
 
-    uint8_t index = 0;
-
-    while (index < strlen(cmd))
-    {
-        char data_byte = cmd[index];
-        bool parity = false;
-
-        // Char frame (10 bits): start + 7 data bits + parity + stop bit. Inverse mode.
-
-        // Start bit
-        rmt_items[cursor].level0 = SDI12_SPACING;
-        rmt_items[cursor].duration0 = SDI12_BIT_WIDTH_US;
-
-        // Char bits
-        uint8_t mask = 0x01;
-        uint8_t bit_value = 0;
-
-        for (uint8_t i = 0; i < 7; ++i)
-        {
-            bit_value = data_byte & mask;
-            uint8_t level_to_write;
-
-            if (bit_value == mask) // bit_value == 1; Inverse -> 0 to write
-            {
-                level_to_write = SDI12_MARKING;
-            }
-            else // bit_value == 0; Inverse -> 1 to write
-            {
-                level_to_write = SDI12_SPACING;
-                parity = !parity;
-            }
-
-            if (i % 2 == 0)
-            {
-                rmt_items[cursor].level1 = level_to_write;
-                rmt_items[cursor].duration1 = SDI12_BIT_WIDTH_US;
-                ++cursor;
-            }
-            else
-            {
-                rmt_items[cursor].level0 = level_to_write;
-                rmt_items[cursor].duration0 = SDI12_BIT_WIDTH_US;
-            }
-
-            data_byte >>= 1;
-        }
-
-        // Here we are written 4 complete rmt items, so we know parity will be on next 0 slot and stop on 1 slot
-        rmt_items[cursor].level0 = parity;
-        rmt_items[cursor].duration0 = SDI12_BIT_WIDTH_US;
-        rmt_items[cursor].level1 = SDI12_MARKING;
-        rmt_items[cursor].duration1 = SDI12_BIT_WIDTH_US;
-        ++cursor;
-        ++index;
-    }
-
-    esp_err_t ret = config_rmt_as_tx(bus);
+    esp_err_t ret = rmt_transmit(bus->rmt_tx_channel, bus->copy_encoder, rmt_symbols, sizeof(rmt_symbol_word_t) * rmt_symbols_len, &tx_config);
 
     if (ret == ESP_OK)
     {
-        ret = rmt_write_items(bus->rmt_tx_channel, rmt_items, rmt_items_length, 1);
+        ret = rmt_tx_wait_all_done(bus->rmt_tx_channel, 1000);
+
+        rmt_disable(bus->rmt_tx_channel);
+        rmt_del_channel(bus->rmt_tx_channel);
     }
 
     return ret;
@@ -465,22 +450,24 @@ static esp_err_t sdi12_check_crc(const char *response)
     }
 }
 
-esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
+esp_err_t sdi12_bus_send_cmd(sdi12_bus_handle_t bus, const char *cmd, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout)
 {
     uint8_t cmd_len = strlen(cmd);
 
-    SDI12_CHECK(cmd, "CMD error", err_args);
-    SDI12_CHECK(out_buffer, "No out buffer", err_args);
-    SDI12_CHECK(out_buffer_length > 0, "Out buffer length error", err_args);
+    ESP_RETURN_ON_FALSE(cmd, ESP_ERR_INVALID_ARG, TAG, "invalid command");
+    ESP_RETURN_ON_FALSE(out_buffer, ESP_ERR_INVALID_ARG, TAG, "no out buffer");
+    ESP_RETURN_ON_FALSE(out_buffer_length > 0, ESP_ERR_INVALID_ARG, TAG, "out buffer length error");
 
-    SDI12_CHECK(((cmd[0] >= '0' && cmd[0] <= '9') || (cmd[0] >= 'a' && cmd[0] <= 'z') || (cmd[0] >= 'A' && cmd[0] <= 'Z') || cmd[0] == '?'),
-        "Invalidad sensor address", err_args);
+    ESP_RETURN_ON_FALSE(((cmd[0] >= '0' && cmd[0] <= '9') || (cmd[0] >= 'a' && cmd[0] <= 'z') || (cmd[0] >= 'A' && cmd[0] <= 'Z') || cmd[0] == '?'),
+        ESP_ERR_INVALID_ARG, TAG, "Invalidad sensor address");
 
-    SDI12_CHECK(cmd[cmd_len - 1] == '!', "Invalid CMD terminator", err_args);
-    ESP_LOGD(TAG, "Out: %s", cmd);
+    ESP_RETURN_ON_FALSE(cmd[cmd_len - 1] == '!', ESP_ERR_INVALID_ARG, TAG, "Invalid CMD terminator");
+    ESP_LOGD(TAG, "TX: %s", cmd);
+
+    // each time RMT is installed/uninstalled INFO message is printed from GPIO component, so it is disabled during cmd time to clean up log messages
+    esp_log_level_set("gpio", ESP_LOG_WARN);
 
     SDI12_BUS_LOCK(bus);
-    SDI12_APB_LOCK(bus);
 
     esp_err_t ret = write_cmd(bus, cmd);
 
@@ -528,69 +515,84 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_t *bus, const char *cmd, bool crc, char *
             }
         }
     }
-
-    // Bus is always master and must be in low state while no transmissions, so keep it as TX.
-    config_rmt_as_tx(bus);
-    SDI12_APB_UNLOCK(bus);
-    SDI12_BUS_UNLOCK(bus);
-
-    return ret;
-
-err_args:
-    return ESP_ERR_INVALID_ARG;
-}
-
-esp_err_t sdi12_bus_deinit(sdi12_bus_t *bus)
-{
-    SDI12_CHECK(bus, "Invalid or NULL bus", err);
-    esp_err_t ret = ESP_FAIL;
-
-    if (bus->rmt_mode == RMT_MODE_TX)
-    {
-        ret = rmt_driver_uninstall(bus->rmt_tx_channel);
-    }
     else
     {
-        ret = rmt_driver_uninstall(bus->rmt_rx_channel);
+        ESP_LOGE(TAG, "write error");
+    }
+
+    // Bus is always master and must be in low state while no transmissions, so keep it as TX.
+    // config_rmt_as_tx(bus);
+    SDI12_BUS_UNLOCK(bus);
+
+    esp_log_level_set("gpio", CONFIG_LOG_DEFAULT_LEVEL);
+
+    return ret;
+}
+
+esp_err_t sdi12_del_bus(sdi12_bus_handle_t bus)
+{
+    esp_err_t ret = ESP_FAIL;
+
+    if (bus->rmt_tx_channel)
+    {
+        rmt_del_channel(bus->rmt_tx_channel);
+    }
+
+    if (bus->rmt_rx_channel)
+    {
+        rmt_del_channel(bus->rmt_rx_channel);
+    }
+
+    if (bus->copy_encoder) { }
+
+    if (bus->mutex)
+    {
+        vSemaphoreDelete(bus->mutex);
     }
 
     free(bus);
 
     return ret;
-err:
-    return ESP_ERR_INVALID_ARG;
 }
 
-sdi12_bus_t *sdi12_bus_init(sdi12_bus_config_t *config)
+esp_err_t sdi12_new_bus(sdi12_bus_config_t *config, sdi12_bus_handle_t *sdi12_bus_out)
 {
-#if CONFIG_SDI12_ENABLE_DEBUG
+#if CONFIG_SDI12_ENABLE_DEBUG_LOG
     esp_log_level_set(TAG, ESP_LOG_DEBUG);
 #endif
-    SDI12_CHECK(config, "Config is NULL", err);
-    SDI12_CHECK(IS_VALID_PIN(config->gpio_num), "Invalid GPIO pin", err);
+
+    esp_err_t ret = ESP_OK;
+    ESP_RETURN_ON_FALSE(config, ESP_ERR_INVALID_ARG, TAG, "config is NULL");
+
+    // GPIO selected must be input and output capable.
+    // ESP_RETURN_ON_FALSE(GPIO_IS_VALID_DIGITAL_IO_PAD(config->gpio_num), ESP_ERR_INVALID_ARG, TAG, "Invalid GPIO pin");
+    ESP_RETURN_ON_FALSE(GPIO_IS_VALID_OUTPUT_GPIO(config->gpio_num), ESP_ERR_INVALID_ARG, TAG, "Invalid GPIO pin");
 
     sdi12_bus_t *bus = calloc(1, sizeof(sdi12_bus_t));
-    SDI12_CHECK(bus, "Can't allocate SDI12 bus", err);
+
+    ESP_RETURN_ON_FALSE(bus, ESP_ERR_NO_MEM, TAG, "can't allocate bus");
 
     bus->gpio_num = config->gpio_num;
-    bus->rmt_tx_channel = config->rmt_tx_channel;
-    bus->rmt_rx_channel = config->rmt_rx_channel;
-    bus->rmt_mode = RMT_MODE_MAX; // Force firts time installation
     bus->timing.break_us = config->bus_timing.break_us != 0 ? config->bus_timing.break_us : SDI12_BREAK_US;
     bus->timing.post_break_marking_us = config->bus_timing.post_break_marking_us != 0 ? config->bus_timing.post_break_marking_us : SDI12_POST_BREAK_MARKING_US;
 
+    rmt_copy_encoder_config_t copy_encoder_config = {};
+    ESP_GOTO_ON_ERROR(rmt_new_copy_encoder(&copy_encoder_config, &bus->copy_encoder), err_encoder, TAG, "can't allocate copy encoder");
     bus->mutex = xSemaphoreCreateMutex();
 
-    SDI12_CHECK(bus->mutex, "Mutex allocation error", err_mutex);
+    ESP_GOTO_ON_FALSE(bus->mutex, ESP_ERR_NO_MEM, err_mutex, TAG, "can't allocate bus mutex");
 
-#if CONFIG_PM_ENABLE && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0)
-    esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 1, "SDI12_PM_LOCK", &bus->pm_lock);
-#endif
+    bus->receive_queue = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
+    ESP_GOTO_ON_FALSE(bus->receive_queue, ESP_ERR_NO_MEM, err_queue, TAG, "can't allocate receive queue");
 
-    return bus;
+    *sdi12_bus_out = bus;
+    return ret;
 
+err_queue:
+    vSemaphoreDelete(bus->mutex);
 err_mutex:
+    rmt_del_encoder(bus->copy_encoder);
+err_encoder:
     free(bus);
-err:
-    return NULL;
+    return ret;
 }

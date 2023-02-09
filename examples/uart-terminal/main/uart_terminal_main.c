@@ -6,11 +6,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "driver/uart.h"
-#include "driver/gpio.h"
-
+#include "esp_check.h"
 #include "esp_log.h"
 #include "esp_err.h"
+
+#include "driver/uart.h"
+#include "driver/gpio.h"
 
 #include "sdi12_bus.h"
 
@@ -33,20 +34,18 @@
 #define TERMINAL_TEST_RTS (UART_PIN_NO_CHANGE)
 #define TERMINAL_TEST_CTS (UART_PIN_NO_CHANGE)
 
-#define TERMINAL_UART_PORT_NUM (CONFIG_EXAMPLE_UART_PORT_NUM)
-#define TERMINAL_UART_BAUD_RATE (CONFIG_EXAMPLE_UART_BAUD_RATE)
+#define TERMINAL_UART_PORT_NUM   (CONFIG_EXAMPLE_UART_PORT_NUM)
+#define TERMINAL_UART_BAUD_RATE  (CONFIG_EXAMPLE_UART_BAUD_RATE)
 #define TERMINAL_TASK_STACK_SIZE (CONFIG_EXAMPLE_TASK_STACK_SIZE)
 
-#define SDI12_DATA_GPIO GPIO_NUM_2
-#define SDI12_RMT_TX_CHANNEL 0
-#define SDI12_RMT_RX_CHANNEL 0
+#define SDI12_DATA_GPIO CONFIG_EXAMPLE_SDI12_BUS_GPIO
 
 #define BUF_SIZE (1024)
 
 static const char *TAG = "SDI12-UART-TERMINAL";
 
 static char response[85] = "";
-static sdi12_bus_t *sdi12_bus;
+static sdi12_bus_handle_t sdi12_bus;
 
 static void uart_terminal_task(void *arg)
 {
@@ -111,12 +110,12 @@ void app_main(void)
 
     sdi12_bus_config_t config = {
         .gpio_num = SDI12_DATA_GPIO,
-        .rmt_tx_channel = SDI12_RMT_TX_CHANNEL,
-        .rmt_rx_channel = SDI12_RMT_RX_CHANNEL,
-        .bus_timing = {
-            .post_break_marking_us = 9000}};
+        .bus_timing = { 
+            .post_break_marking_us = 9000, 
+        },
+    };
 
-    sdi12_bus = sdi12_bus_init(&config);
+    ESP_ERROR_CHECK(sdi12_new_bus(&config, &sdi12_bus));
 
     ESP_LOGI(TAG, "SDI12 BUS initialization DONE");
 

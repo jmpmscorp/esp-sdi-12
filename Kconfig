@@ -1,6 +1,5 @@
 menu "SDI12 Bus"
-
-    config SDI12_ENABLE_DEBUG
+    config SDI12_ENABLE_DEBUG_LOG
         bool "Enable Local LOG Debug Level"
         default n
             

@@ -14,47 +14,52 @@ extern "C"
         SDI12_VERSION_1_4 = 14
     } sdi12_version_t;
 
-    typedef struct sdi12_dev * sdi12_dev_handle_t;
+    typedef struct sdi12_dev *sdi12_dev_handle_t;
 
     /**
      * @brief Get address stored in object
      *
      * @note No bus interaction
      *
-     * @param[in] dev   Device object
+     * @param[in] dev           device object
+     * @param[out] out_address  device address
      * @return char
      */
-    char sdi12_dev_get_address(sdi12_dev_handle_t dev);
+    esp_err_t sdi12_dev_get_address(sdi12_dev_handle_t dev, char *out_address);
 
     /**
      * @brief Get SDI12 version stored in object
      *
      * @note No bus interaction
      *
-     * @param[in] dev   Device object
+     * @param[in] dev   device object
+     * @param[out] out_version  device sdi12 version compliant
      * @return sdi12_version_t
      */
-    sdi12_version_t sdi12_dev_get_sdi_version(sdi12_dev_handle_t dev);
+    esp_err_t sdi12_dev_get_sdi_version(sdi12_dev_handle_t dev, sdi12_version_t *out_version);
 
     /**
      * @brief Get address stored in object
      *
      * @note No bus interaction
      *
-     * @param[in] dev   Device object
+     * @param[in] dev   device object
+     * @param[out] out_vendor_id  device vendor id
      * @return char
      */
-    char *sdi12_dev_get_vendor_id(sdi12_dev_handle_t dev);
+    esp_err_t sdi12_dev_get_vendor_id(sdi12_dev_handle_t dev, char *out_vendor_id);
 
     /**
      * @brief Get model stored in object
      *
      * @note No bus interaction
      *
-     * @param[in] dev   Device object
+     * @param[in] dev   device object
+     * @param[out] out_model  device model
+     * 
      * @return char *
      */
-    char *sdi12_dev_get_model(sdi12_dev_handle_t dev);
+    esp_err_t sdi12_dev_get_model(sdi12_dev_handle_t dev, char * out_model);
 
     /**
      * @brief Get model version stored in object
@@ -62,9 +67,11 @@ extern "C"
      * @note No bus interaction
      *
      * @param[in] dev   Device object
+     * @param[out] out_model_version  device model version
+     * 
      * @return char *
      */
-    char *sdi12_dev_get_model_version(sdi12_dev_handle_t dev);
+    esp_err_t sdi12_dev_get_model_version(sdi12_dev_handle_t dev, char * out_model_version);
 
     /**
      * @brief Get optional field stored in object
@@ -74,7 +81,7 @@ extern "C"
      * @param[in] dev   Device object
      * @return char *
      */
-    char *sdi12_dev_get_optional_info(sdi12_dev_handle_t dev);
+    esp_err_t sdi12_dev_get_optional_info(sdi12_dev_handle_t dev, char * out_optional_field);
 
     /**
      * @brief Send a! command.
@@ -190,9 +197,9 @@ extern "C"
 
     /**
      * @brief Send aCx! or aCCx! command.
-     * 
+     *
      * @details To send aC! or aCC! command, set c_index 0.
-     * 
+     *
      * @param[in] dev       Device object
      * @param[in] c_index   x on aCx! or aCCx!
      * @param[in] crc       True to send CRC version 'aCCx!'. False to send 'aCx!'
@@ -208,9 +215,9 @@ extern "C"
 
     /**
      * @brief Send aRx! command.
-     * 
+     *
      * @details To send aR!, set d_index 0.
-     * 
+     *
      * @param[in] dev                   Device object
      * @param[in] r_index               x on aRx!
      * @param[in] crc                   True to check CRC. False otherwise
@@ -223,7 +230,8 @@ extern "C"
      *      ESP_ERR_INVALID_ARG if invalid dev
      *      ESP_ERR_FAIL any other error
      */
-    esp_err_t sdi12_dev_read_continuos_measurement(sdi12_dev_handle_t dev, uint8_t r_index, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout);
+    esp_err_t sdi12_dev_read_continuos_measurement(sdi12_dev_handle_t dev, uint8_t r_index, bool crc, char *out_buffer, size_t out_buffer_length,
+        uint32_t timeout);
 
     // TODO implement
     // esp_err_t sdi12_dev_start_high_volume_ascii_measurement(sdi12_dev_t *dev, uint8_t measures_index, uint8_t *n_params);
@@ -231,14 +239,14 @@ extern "C"
 
     /**
      * @brief Send any identity command, aIX!
-     * 
+     *
      * @details Function add I automatically. You only need to provide which command you want to send. i.e. To send aIMC!, you need to pass MC through cmd.
-     * 
+     *
      * @param[in] dev           Device object
-     * @param[in] cmd           CMD to send 
+     * @param[in] cmd           CMD to send
      * @param[out] n_params     Number of values returned on measurements. n on response 'atttn', nn on 'atttnn' or nnn on 'atttnnn'
      * @param[in] timeout       Time to wait for response
-     * @return esp_err_t 
+     * @return esp_err_t
      * @return esp_err_t
      *      ESP_OK if no error
      *      ESP_ERR_TIMEOUT if timeout expires
@@ -249,14 +257,14 @@ extern "C"
 
     /**
      * @brief Send any command not provided in this api.
-     * 
-     * @details Take in mind that device address and '!' is append automatically to cmd. i.e. To send aHB!, set cmd as HB  
-     * 
+     *
+     * @details Take in mind that device address and '!' is append automatically to cmd. i.e. To send aHB!, set cmd as HB
+     *
      * @param[in] dev                   Device object
-     * @param[in] cmd                   Cmd to send 
+     * @param[in] cmd                   Cmd to send
      * @param[in] crc                   Set to true if response needs to check CRC. False otherwise
      * @param[out] out_buffer           Buffer to store response
-     * @param[out] out_buffer_length    Response buffer length 
+     * @param[out] out_buffer_length    Response buffer length
      * @param[in] timeout               Time to wait for response
      * @return esp_err_t
      *      ESP_OK if no error
@@ -268,22 +276,22 @@ extern "C"
 
     /**
      * @brief Free device memory resources
-     * 
+     *
      * @param[in] dev   Device object
      */
     void sdi12_del_dev(sdi12_dev_handle_t dev);
 
     /**
      * @brief Allocate resources for device.
-     * 
-     * @details Before allocate device resources and if address is different from '?', acknowledge active command is sent. If response is OK, device object is returned and NULL if any error on response.
-     * On other hand, if address is '?', instead of acknowledge active, address query command is sent.  
-     * 
-     * @param[in] bus           SDI12 bus object 
-     * @param[in] address       Device address address or '?' to query it 
+     *
+     * @details Before allocate device resources and if address is different from '?', acknowledge active command is sent. If response is OK, device object is
+     * returned and NULL if any error on response. On other hand, if address is '?', instead of acknowledge active, address query command is sent.
+     *
+     * @param[in] bus           SDI12 bus object
+     * @param[in] address       Device address or '?' to query it. Ensure only 1 device is on bus if you use '?'.
      * @return sdi12_dev_t*     Device object or NULL
      */
-    sdi12_dev_handle_t sdi12_new_dev(sdi12_bus_handle_t bus, char address);
+    esp_err_t sdi12_new_dev(sdi12_bus_handle_t bus, char address, sdi12_dev_handle_t *dev_out);
 
 #ifdef __cplusplus
 }

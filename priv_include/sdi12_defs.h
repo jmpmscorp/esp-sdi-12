@@ -7,15 +7,6 @@
 #include "esp_intr_alloc.h"
 #include "esp_heap_caps.h"
 
-#define SDI12_CHECK(a, str, goto_tag, ...)                                                                                                                     \
-    do                                                                                                                                                         \
-    {                                                                                                                                                          \
-        if (!(a))                                                                                                                                              \
-        {                                                                                                                                                      \
-            ESP_LOGE(TAG, str, ##__VA_ARGS__);                                                                                                                 \
-            goto goto_tag;                                                                                                                                     \
-        }                                                                                                                                                      \
-    } while (0)
 
 #if CONFIG_RMT_ISR_IRAM_SAFE
 #define RMT_MEM_ALLOC_CAPS (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)

@@ -23,15 +23,12 @@ extern "C"
         sdi12_bus_timing_t bus_timing;
     } sdi12_bus_config_t;
 
-
     /**
      * @brief Send command over the bus and waits ONLY for first response line (first <LF><CR> found).
      *
      * @details AM!, AMx!, aMC!, aMCx!, aV! commands require a service request.
-     * When service request command is issued, timeout is used for wait 'atttn', 'atttnn' or 'atttnnn' response line. However, send cmd proccess can
-     * take more time due to 'ttt' seconds. Function automatically calculates elapsed time and waits for it. If there is no response, ESP_TIMEOUT is returned.
-     * On the other side, response (device address) is checked with cmd address. If comparison fails, ESP_FAIL is returned.
-     *
+     * When service request command is issued, timeout param is used for wait 'atttn', 'atttnn' or 'atttnnn' response line.
+     * Function automatically calculates elapsed time and waits for it.
      *
      *
      * @param[in] bus                   bus object
@@ -42,11 +39,13 @@ extern "C"
      * @param[in] timeout               time to wait for response
      *
      * @return esp_err_t
-     *      ESP_OK
-     *      ESP_ERR_TIMEOUT
-     *      ESP_ERR_FAIL
-     *      ESP_ERR_INVALID_ARG
-     *      ESP_ERR_INVALID_SIZE
+     *      ESP_OK on success
+     *      ESP_FAIL
+     *      ESP_ERR_TIMEOUT cmd timeout expires
+     *      ESP_ERR_INVALID_ARG any invalid argument
+     *      ESP_ERR_INVALID_SIZE when out buffer length isn't enough
+     *      ESP_ERR_INVALID_RESPONSE when response first char is different than cmd first char
+     *      ESP_ERR_NOT_FINISHED when service request required but no address char is received
      */
     esp_err_t sdi12_bus_send_cmd(sdi12_bus_handle_t bus, const char *cmd, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout);
 

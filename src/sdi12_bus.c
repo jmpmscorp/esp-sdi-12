@@ -66,7 +66,7 @@ static esp_err_t config_rmt_as_tx(sdi12_bus_t *bus)
         .mem_block_symbols = 64,          // memory block size, 64 * 4 = 256Bytes
         .trans_queue_depth = 6,
         .flags  = {
-            .io_loop_back = true,
+            .io_loop_back = false,
             .invert_out = false, // don't invert input signal
             .with_dma = false,  // don't need DMA backend
         }, 
@@ -108,7 +108,13 @@ static esp_err_t config_rmt_as_rx(sdi12_bus_t *bus)
             .with_dma = false,
         },
     };
+
+    // Workaround to enable PULLDOWN on pin. rmt_new_rx_channel enable by default pull up
+    // and there is no way to change it.
+    gpio_hold_en(bus->gpio_num);
     ESP_RETURN_ON_ERROR(rmt_new_rx_channel(&rx_channel_config, &bus->rmt_rx_channel), TAG, "create rmt rx channel failed");
+    gpio_hold_dis(bus->gpio_num);
+    gpio_set_pull_mode(bus->gpio_num, GPIO_PULLDOWN_ONLY);
 
     rmt_rx_event_callbacks_t cbs = {
         .on_recv_done = sdi12_rmt_receive_done_callback,
@@ -120,6 +126,23 @@ static esp_err_t config_rmt_as_rx(sdi12_bus_t *bus)
     return ESP_OK;
 }
 
+static esp_err_t set_idle_bus(sdi12_bus_t *bus)
+{
+    gpio_config_t gpio_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        // also enable the input path is `io_loop_back` is on, this is useful for debug
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_down_en = false,
+        .pull_up_en = false,
+        .pin_bit_mask = 1ULL << bus->gpio_num,
+    };
+
+    gpio_hold_dis(bus->gpio_num);
+
+    ESP_RETURN_ON_ERROR(gpio_config(&gpio_conf), TAG, "set idle bus error");
+
+    return gpio_set_level(bus->gpio_num, 0);
+}
 
 /**
  * @brief Parse RMT symbols into char buffer. Stop when SDI12 response end (\r\n) is found
@@ -262,7 +285,7 @@ static esp_err_t read_response_line(sdi12_bus_t *bus, char *out_buffer, size_t o
 
     rmt_receive_config_t receive_config = {
         .signal_range_min_ns = (SDI12_BIT_WIDTH_US - 50) * 1000, // the shortest duration for SDI12 signal is bit width
-        .signal_range_max_ns = (SDI12_BREAK_US + 200) * 1000,    // the longest duration for SDI12 signal is break signal
+        .signal_range_max_ns = (SDI12_BREAK_US + 500) * 1000,    // the longest duration for SDI12 signal is break signal
     };
 
     ret = rmt_receive(bus->rmt_rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config);
@@ -290,8 +313,12 @@ static esp_err_t read_response_line(sdi12_bus_t *bus, char *out_buffer, size_t o
         }
     }
 
+    // Skip gpio reset on disable rmt_disable()
+    gpio_hold_en(bus->gpio_num);
     rmt_disable(bus->rmt_rx_channel);
     rmt_del_channel(bus->rmt_rx_channel);
+    set_idle_bus(bus);
+
     return ret;
 }
 
@@ -397,8 +424,13 @@ static esp_err_t write_cmd(sdi12_bus_t *bus, const char *cmd)
     {
         ret = rmt_tx_wait_all_done(bus->rmt_tx_channel, 1000);
 
+        gpio_hold_en(bus->gpio_num);
         rmt_disable(bus->rmt_tx_channel);
         rmt_del_channel(bus->rmt_tx_channel);
+
+        set_idle_bus(bus);
+
+        // gpio_set_level(bus->gpio_num, 0);
     }
 
     return ret;
@@ -474,6 +506,7 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_handle_t bus, const char *cmd, bool crc, 
     if (ret == ESP_OK)
     {
         ret = read_response_line(bus, out_buffer, out_buffer_length, timeout);
+        // gpio_set_pull_mode(bus->gpio_num, GPIO_PULLDOWN_ONLY);
 
         if (ret == ESP_OK)
         {
@@ -506,10 +539,15 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_handle_t bus, const char *cmd, bool crc, 
                     char temp_buf[4] = { 0 };
 
                     ret = read_response_line(bus, temp_buf, sizeof(temp_buf), seconds * 1000);
-
+                    
+                    
                     if (ret == ESP_OK && strlen(temp_buf) > 0)
                     {
-                        ret = temp_buf[0] == cmd[0] ? ESP_OK : ESP_FAIL;
+                        ret = temp_buf[0] == cmd[0] ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
+                    }
+                    else if(ret == ESP_ERR_TIMEOUT)
+                    {
+                        ret = ESP_ERR_NOT_FINISHED;
                     }
                 }
             }
@@ -522,6 +560,7 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_handle_t bus, const char *cmd, bool crc, 
 
     // Bus is always master and must be in low state while no transmissions, so keep it as TX.
     // config_rmt_as_tx(bus);
+    // ret = set_idle_bus(bus);
     SDI12_BUS_UNLOCK(bus);
 
     esp_log_level_set("gpio", CONFIG_LOG_DEFAULT_LEVEL);
@@ -584,6 +623,8 @@ esp_err_t sdi12_new_bus(sdi12_bus_config_t *config, sdi12_bus_handle_t *sdi12_bu
 
     bus->receive_queue = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
     ESP_GOTO_ON_FALSE(bus->receive_queue, ESP_ERR_NO_MEM, err_queue, TAG, "can't allocate receive queue");
+
+    set_idle_bus(bus);
 
     *sdi12_bus_out = bus;
     return ret;

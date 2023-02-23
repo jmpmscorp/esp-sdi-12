@@ -558,8 +558,6 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_handle_t bus, const char *cmd, bool crc, 
 
 esp_err_t sdi12_del_bus(sdi12_bus_handle_t bus)
 {
-    esp_err_t ret = ESP_FAIL;
-
     if (bus->rmt_tx_channel)
     {
         rmt_del_channel(bus->rmt_tx_channel);
@@ -579,28 +577,28 @@ esp_err_t sdi12_del_bus(sdi12_bus_handle_t bus)
 
     free(bus);
 
-    return ret;
+    return ESP_OK;
 }
 
-esp_err_t sdi12_new_bus(sdi12_bus_config_t *config, sdi12_bus_handle_t *sdi12_bus_out)
+esp_err_t sdi12_new_bus(sdi12_bus_config_t *bus_config, sdi12_bus_handle_t *sdi12_bus_out)
 {
 #if CONFIG_SDI12_ENABLE_DEBUG_LOG
     esp_log_level_set(TAG, ESP_LOG_DEBUG);
 #endif
 
     esp_err_t ret = ESP_OK;
-    ESP_RETURN_ON_FALSE(config, ESP_ERR_INVALID_ARG, TAG, "config is NULL");
+    ESP_RETURN_ON_FALSE(bus_config, ESP_ERR_INVALID_ARG, TAG, "config is NULL");
 
     // GPIO selected must be input and output capable.
-    ESP_RETURN_ON_FALSE(GPIO_IS_VALID_OUTPUT_GPIO(config->gpio_num), ESP_ERR_INVALID_ARG, TAG, "invalid GPIO pin");
+    ESP_RETURN_ON_FALSE(GPIO_IS_VALID_OUTPUT_GPIO(bus_config->gpio_num), ESP_ERR_INVALID_ARG, TAG, "invalid GPIO pin");
 
     sdi12_bus_t *bus = calloc(1, sizeof(sdi12_bus_t));
 
     ESP_RETURN_ON_FALSE(bus, ESP_ERR_NO_MEM, TAG, "can't allocate bus");
 
-    bus->gpio_num = config->gpio_num;
-    bus->timing.break_us = config->bus_timing.break_us != 0 ? config->bus_timing.break_us : SDI12_BREAK_US;
-    bus->timing.post_break_marking_us = config->bus_timing.post_break_marking_us != 0 ? config->bus_timing.post_break_marking_us : SDI12_POST_BREAK_MARKING_US;
+    bus->gpio_num = bus_config->gpio_num;
+    bus->timing.break_us = bus_config->bus_timing.break_us != 0 ? bus_config->bus_timing.break_us : SDI12_BREAK_US;
+    bus->timing.post_break_marking_us = bus_config->bus_timing.post_break_marking_us != 0 ? bus_config->bus_timing.post_break_marking_us : SDI12_POST_BREAK_MARKING_US;
 
     rmt_copy_encoder_config_t copy_encoder_config = {};
     ESP_GOTO_ON_ERROR(rmt_new_copy_encoder(&copy_encoder_config, &bus->copy_encoder), err_encoder, TAG, "can't allocate copy encoder");

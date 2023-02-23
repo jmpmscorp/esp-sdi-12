@@ -57,7 +57,7 @@ static const char *TAG = "sdi12 bus";
  *      - ESP_FAIL RMT config install error
  *      - ESP_OK  configuration and installation OK
  */
-static esp_err_t config_rmt_as_tx(sdi12_bus_t *bus)
+static esp_err_t config_rmt_tx_channel(sdi12_bus_t *bus)
 {
     rmt_tx_channel_config_t tx_channel_config = {
         .gpio_num = bus->gpio_num,        // GPIO number
@@ -72,11 +72,7 @@ static esp_err_t config_rmt_as_tx(sdi12_bus_t *bus)
         }, 
     };
 
-    ESP_RETURN_ON_ERROR(rmt_new_tx_channel(&tx_channel_config, &bus->rmt_tx_channel), TAG, "create rmt tx channel error");
-
-    ESP_RETURN_ON_ERROR(rmt_enable(bus->rmt_tx_channel), TAG, "rmt tx enable error");
-
-    return ESP_OK;
+    return rmt_new_tx_channel(&tx_channel_config, &bus->rmt_tx_channel);
 }
 
 static bool sdi12_rmt_receive_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_t *data, void *user_data)
@@ -95,7 +91,7 @@ static bool sdi12_rmt_receive_done_callback(rmt_channel_handle_t channel, const 
  *      - ESP_FAIL RMT config install error
  *      - ESP_OK  configuration and installation OK
  */
-static esp_err_t config_rmt_as_rx(sdi12_bus_t *bus)
+static esp_err_t config_rmt_rx_channel(sdi12_bus_t *bus)
 {
     rmt_rx_channel_config_t rx_channel_config = {
         .gpio_num = bus->gpio_num,
@@ -106,14 +102,12 @@ static esp_err_t config_rmt_as_rx(sdi12_bus_t *bus)
             .io_loop_back = false,
             .invert_in = false,
             .with_dma = false,
-        },
-    };
+            },
+        };
 
     // Workaround to enable PULLDOWN on pin. rmt_new_rx_channel enable by default pull up
     // and there is no way to change it.
-    gpio_hold_en(bus->gpio_num);
     ESP_RETURN_ON_ERROR(rmt_new_rx_channel(&rx_channel_config, &bus->rmt_rx_channel), TAG, "create rmt rx channel failed");
-    gpio_hold_dis(bus->gpio_num);
     gpio_set_pull_mode(bus->gpio_num, GPIO_PULLDOWN_ONLY);
 
     rmt_rx_event_callbacks_t cbs = {
@@ -121,7 +115,6 @@ static esp_err_t config_rmt_as_rx(sdi12_bus_t *bus)
     };
 
     ESP_RETURN_ON_ERROR(rmt_rx_register_event_callbacks(bus->rmt_rx_channel, &cbs, bus->receive_queue), TAG, "error registering rx callback");
-    ESP_RETURN_ON_ERROR(rmt_enable(bus->rmt_rx_channel), TAG, "error enabling rx channel");
 
     return ESP_OK;
 }
@@ -136,8 +129,6 @@ static esp_err_t set_idle_bus(sdi12_bus_t *bus)
         .pull_up_en = false,
         .pin_bit_mask = 1ULL << bus->gpio_num,
     };
-
-    gpio_hold_dis(bus->gpio_num);
 
     ESP_RETURN_ON_ERROR(gpio_config(&gpio_conf), TAG, "set idle bus error");
 
@@ -271,13 +262,7 @@ static esp_err_t read_response_line(sdi12_bus_t *bus, char *out_buffer, size_t o
 
     esp_err_t ret;
 
-    ret = config_rmt_as_rx(bus);
-    // ret = rmt_enable(bus->rmt_rx_channel);
-
-    if (ret != ESP_OK)
-    {
-        return ret;
-    }
+    ESP_RETURN_ON_ERROR(rmt_enable(bus->rmt_rx_channel), TAG, "rmt rx channel enable error");
 
     rmt_symbol_word_t raw_symbols[128];
     rmt_rx_done_event_data_t rx_data;
@@ -313,11 +298,7 @@ static esp_err_t read_response_line(sdi12_bus_t *bus, char *out_buffer, size_t o
         }
     }
 
-    // Skip gpio reset on disable rmt_disable()
-    gpio_hold_en(bus->gpio_num);
     rmt_disable(bus->rmt_rx_channel);
-    rmt_del_channel(bus->rmt_rx_channel);
-    set_idle_bus(bus);
 
     return ret;
 }
@@ -405,13 +386,13 @@ static void encode_cmd(sdi12_bus_timing_t *timing, const char *cmd, rmt_symbol_w
 
 static esp_err_t write_cmd(sdi12_bus_t *bus, const char *cmd)
 {
-    ESP_RETURN_ON_ERROR(config_rmt_as_tx(bus), TAG, "error on tx config");
-
     // Initial Break & marking + chars. Every char need 10 bits transfers so it needs 5 rmt_symbol_word
     size_t rmt_symbols_len = 1 + strlen(cmd) * 5;
     rmt_symbol_word_t rmt_symbols[rmt_symbols_len];
 
     encode_cmd(&bus->timing, cmd, rmt_symbols, rmt_symbols_len);
+
+    ESP_RETURN_ON_ERROR(rmt_enable(bus->rmt_tx_channel), TAG, "rmt tx channel enable error");
 
     rmt_transmit_config_t tx_config = {
         .loop_count = 0,
@@ -424,13 +405,7 @@ static esp_err_t write_cmd(sdi12_bus_t *bus, const char *cmd)
     {
         ret = rmt_tx_wait_all_done(bus->rmt_tx_channel, 1000);
 
-        gpio_hold_en(bus->gpio_num);
         rmt_disable(bus->rmt_tx_channel);
-        rmt_del_channel(bus->rmt_tx_channel);
-
-        set_idle_bus(bus);
-
-        // gpio_set_level(bus->gpio_num, 0);
     }
 
     return ret;
@@ -501,10 +476,14 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_handle_t bus, const char *cmd, bool crc, 
 
     SDI12_BUS_LOCK(bus);
 
+    ESP_RETURN_ON_ERROR(config_rmt_tx_channel(bus), TAG, "config rmt tx channel error");
+
     esp_err_t ret = write_cmd(bus, cmd);
 
     if (ret == ESP_OK)
     {
+        ESP_RETURN_ON_ERROR(config_rmt_rx_channel(bus), TAG, "config rmt rx channel error");
+
         ret = read_response_line(bus, out_buffer, out_buffer_length, timeout);
         // gpio_set_pull_mode(bus->gpio_num, GPIO_PULLDOWN_ONLY);
 
@@ -539,13 +518,12 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_handle_t bus, const char *cmd, bool crc, 
                     char temp_buf[4] = { 0 };
 
                     ret = read_response_line(bus, temp_buf, sizeof(temp_buf), seconds * 1000);
-                    
-                    
+
                     if (ret == ESP_OK && strlen(temp_buf) > 0)
                     {
                         ret = temp_buf[0] == cmd[0] ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
                     }
-                    else if(ret == ESP_ERR_TIMEOUT)
+                    else if (ret == ESP_ERR_TIMEOUT)
                     {
                         ret = ESP_ERR_NOT_FINISHED;
                     }
@@ -558,9 +536,13 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_handle_t bus, const char *cmd, bool crc, 
         ESP_LOGE(TAG, "write error");
     }
 
-    // Bus is always master and must be in low state while no transmissions, so keep it as TX.
-    // config_rmt_as_tx(bus);
-    // ret = set_idle_bus(bus);
+    // Hold gpio to skip glitches due to gpio_reset func on rmt_del_channel
+    gpio_hold_en(bus->gpio_num);
+    rmt_del_channel(bus->rmt_tx_channel);
+    rmt_del_channel(bus->rmt_rx_channel);
+    gpio_hold_dis(bus->gpio_num);
+    ret = set_idle_bus(bus);
+
     SDI12_BUS_UNLOCK(bus);
 
     esp_log_level_set("gpio", CONFIG_LOG_DEFAULT_LEVEL);

@@ -3,12 +3,7 @@
 #include "esp_check.h"
 #include "esp_log.h"
 
-#include "sdi12_defs.h"
 #include "sdi12_dev.h"
-
-#if CONFIG_SDI12_ENABLE_DEBUG_LOG
-#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
-#endif
 
 typedef struct
 {

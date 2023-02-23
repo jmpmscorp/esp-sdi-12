@@ -7,7 +7,16 @@
 extern "C"
 {
 #endif
-#define SDI12_DEFAULT_RESPONSE_TIMEOUT (1000) // Milliseconds
+
+    /**
+     * By 1.4 specs, commonly response time is:
+     *  - 380 msec most commands
+     *  - 780 msec for a D command after concurrent measurement 
+     *  - 810 msec for a D command after concurrent measurement with CRC
+     * 
+     *  Maximum response time is 10.1 seconds to a DB command.
+     */
+    #define SDI12_DEFAULT_RESPONSE_TIMEOUT (1000) // Milliseconds
 
     typedef struct sdi12_bus *sdi12_bus_handle_t;
 

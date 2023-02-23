@@ -17,8 +17,16 @@
 
 #include "esp_log.h"
 
-#include "sdi12_defs.h"
 #include "sdi12_bus.h"
+
+#define SDI12_BREAK_US              (12200)
+#define SDI12_POST_BREAK_MARKING_US (8333)
+#define SDI12_BIT_WIDTH_US          (833)
+
+#define SDI12_MARKING (0)
+#define SDI12_SPACING (1)
+
+#define SDI12_CRC_POLY 0xA001
 
 typedef struct sdi12_bus
 {
@@ -123,7 +131,6 @@ static esp_err_t set_idle_bus(sdi12_bus_t *bus)
 {
     gpio_config_t gpio_conf = {
         .intr_type = GPIO_INTR_DISABLE,
-        // also enable the input path is `io_loop_back` is on, this is useful for debug
         .mode = GPIO_MODE_OUTPUT,
         .pull_down_en = false,
         .pull_up_en = false,
@@ -138,9 +145,9 @@ static esp_err_t set_idle_bus(sdi12_bus_t *bus)
 /**
  * @brief Parse RMT symbols into char buffer. Stop when SDI12 response end (\r\n) is found
  *
- * @param bus         bus object
- * @param raw_symbols         received rmt symbols
- * @param symbols_length  received rmt symbols length
+ * @param bus               bus object
+ * @param raw_symbols       received rmt symbols
+ * @param symbols_length    received rmt symbols length
  * @return esp_err_t
  *      - ESP_ERR_INVALID_ARG bus or symbol are NULL or symbol_length <= 0
  *      - ESP_ERR_NOT_FOUND SDI12 end isn't found
@@ -269,8 +276,8 @@ static esp_err_t read_response_line(sdi12_bus_t *bus, char *out_buffer, size_t o
     uint32_t aux_timeout = timeout != 0 ? timeout : SDI12_DEFAULT_RESPONSE_TIMEOUT;
 
     rmt_receive_config_t receive_config = {
-        .signal_range_min_ns = (SDI12_BIT_WIDTH_US - 50) * 1000, // the shortest duration for SDI12 signal is bit width
-        .signal_range_max_ns = (SDI12_BREAK_US + 500) * 1000,    // the longest duration for SDI12 signal is break signal
+        .signal_range_min_ns = (SDI12_BIT_WIDTH_US - 400) * 1000, // the shortest duration for SDI12 signal is bit width with 0.4ms tolerance
+        .signal_range_max_ns = (15500) * 1000,    // the longest duration is the idle time between end of cmd and start of response. 15ms max by specs.
     };
 
     ret = rmt_receive(bus->rmt_rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config);
@@ -306,6 +313,7 @@ static esp_err_t read_response_line(sdi12_bus_t *bus, char *out_buffer, size_t o
 static void encode_cmd(sdi12_bus_timing_t *timing, const char *cmd, rmt_symbol_word_t *rmt_symbols_out, size_t rmt_symbols_len)
 {
     size_t rmt_symbol_index = 0;
+
     // Break + marking
     rmt_symbols_out[rmt_symbol_index].level0 = 1;
     rmt_symbols_out[rmt_symbol_index].duration0 = timing->break_us;
@@ -314,7 +322,7 @@ static void encode_cmd(sdi12_bus_timing_t *timing, const char *cmd, rmt_symbol_w
     ++rmt_symbol_index;
 
     uint8_t char_index = 0;
-    size_t encode_len = rmt_symbols_len - 1; // Remove break + marking symbol
+    size_t encode_len = rmt_symbols_len - 1; // Remove break + marking symbol to encode length
 
     while (encode_len > 0)
     {
@@ -386,7 +394,7 @@ static void encode_cmd(sdi12_bus_timing_t *timing, const char *cmd, rmt_symbol_w
 
 static esp_err_t write_cmd(sdi12_bus_t *bus, const char *cmd)
 {
-    // Initial Break & marking + chars. Every char need 10 bits transfers so it needs 5 rmt_symbol_word
+    // Initial Break & marking + chars. Every char need 10 bits transfers so it needs 5 rmt_symbol_word_t
     size_t rmt_symbols_len = 1 + strlen(cmd) * 5;
     rmt_symbol_word_t rmt_symbols[rmt_symbols_len];
 
@@ -447,12 +455,11 @@ static esp_err_t sdi12_check_crc(const char *response)
 
     if (strncmp(crc_str, response + response_len - 3, 3) == 0)
     {
-        ESP_LOGD(TAG, "CRC: %s, Valid!", crc_str);
         return ESP_OK;
     }
     else
     {
-        ESP_LOGD(TAG, "CRC: %s, Invalid!", crc_str);
+        ESP_LOGD(TAG, "invalid crc: %s", crc_str);
         return ESP_ERR_INVALID_CRC;
     }
 }
@@ -471,7 +478,7 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_handle_t bus, const char *cmd, bool crc, 
     ESP_RETURN_ON_FALSE(cmd[cmd_len - 1] == '!', ESP_ERR_INVALID_ARG, TAG, "Invalid CMD terminator");
     ESP_LOGD(TAG, "TX: %s", cmd);
 
-    // each time RMT is installed/uninstalled INFO message is printed from GPIO component, so it is disabled during cmd time to clean up log messages
+    // each time RMT is installed/uninstalled INFO LOG message is printed from GPIO component, so it is disabled during cmd time to clean up log messages
     esp_log_level_set("gpio", ESP_LOG_WARN);
 
     SDI12_BUS_LOCK(bus);
@@ -485,7 +492,6 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_handle_t bus, const char *cmd, bool crc, 
         ESP_RETURN_ON_ERROR(config_rmt_rx_channel(bus), TAG, "config rmt rx channel error");
 
         ret = read_response_line(bus, out_buffer, out_buffer_length, timeout);
-        // gpio_set_pull_mode(bus->gpio_num, GPIO_PULLDOWN_ONLY);
 
         if (ret == ESP_OK)
         {
@@ -586,8 +592,7 @@ esp_err_t sdi12_new_bus(sdi12_bus_config_t *config, sdi12_bus_handle_t *sdi12_bu
     ESP_RETURN_ON_FALSE(config, ESP_ERR_INVALID_ARG, TAG, "config is NULL");
 
     // GPIO selected must be input and output capable.
-    // ESP_RETURN_ON_FALSE(GPIO_IS_VALID_DIGITAL_IO_PAD(config->gpio_num), ESP_ERR_INVALID_ARG, TAG, "Invalid GPIO pin");
-    ESP_RETURN_ON_FALSE(GPIO_IS_VALID_OUTPUT_GPIO(config->gpio_num), ESP_ERR_INVALID_ARG, TAG, "Invalid GPIO pin");
+    ESP_RETURN_ON_FALSE(GPIO_IS_VALID_OUTPUT_GPIO(config->gpio_num), ESP_ERR_INVALID_ARG, TAG, "invalid GPIO pin");
 
     sdi12_bus_t *bus = calloc(1, sizeof(sdi12_bus_t));
 

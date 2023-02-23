@@ -66,7 +66,7 @@ static void uart_terminal_task(void *arg)
             data[len] = '\0';
             ESP_LOGI(TAG, "Got data (%d bytes): %s", len, data);
 
-            ret = sdi12_bus_send_cmd(sdi12_bus, (const char *)data, crc, response, sizeof(response), 0);
+            ret = sdi12_bus_send_cmd(sdi12_bus, (const char *)data, crc, response, sizeof(response), SDI12_DEFAULT_RESPONSE_TIMEOUT);
             uart_write_bytes(TERMINAL_UART_PORT_NUM, (const char *)response, strlen(response));
 
             if (ret != ESP_OK)

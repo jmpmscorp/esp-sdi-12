@@ -14,97 +14,57 @@ extern "C"
         SDI12_VERSION_1_4 = 14
     } sdi12_version_t;
 
+    typedef struct
+    {
+        sdi12_version_t sdi12_version;
+        char *vendor_id;
+        char *model;
+        char *model_version;
+        char *optional;
+    } sdi12_dev_info_t;
+
     typedef struct sdi12_dev *sdi12_dev_handle_t;
 
     /**
-     * @brief Get address stored in object
+     * @brief Get device info struct
      *
-     * @note No bus interaction
+     * @note No bus interaction. Returns address stored before device creation
      *
-     * @param[in] dev           device object
-     * @param[out] out_address  device address
+     * @param dev   Device object
+     * @param out_info  Device address
      * @return
-     *      - ESP_INVALID_ARG if NULL dev
-     *      - ESP_OK on success
+     *      - ESP_OK if no error
+     *      - ESP_ERR_TIMEOUT if timeout expires
+     *      - ESP_ERR_INVALID_ARG if invalid dev
+     *      - ESP_ERR_FAIL any other error
      */
     esp_err_t sdi12_dev_get_address(sdi12_dev_handle_t dev, char *out_address);
 
     /**
-     * @brief Get SDI12 version stored in object
+     * @brief Get device info struct
      *
-     * @note No bus interaction. Returns address passed on device creation.
+     * @note No bus interaction. Returns info struct stored before issue read identification
      *
-     * @param[in] dev   device object
-     * @param[out] out_version  device sdi12 version compliant
+     * @param dev   Device object
+     * @param out_info  Out info struct
      * @return
-     *      - ESP_INVALID_ARG if NULL dev
-     *      - ESP_OK on success
+     *      - ESP_OK if no error
+     *      - ESP_ERR_TIMEOUT if timeout expires
+     *      - ESP_ERR_INVALID_ARG if invalid dev
+     *      - ESP_ERR_FAIL any other error
      */
-    esp_err_t sdi12_dev_get_sdi_version(sdi12_dev_handle_t dev, sdi12_version_t *out_version);
-
-    /**
-     * @brief Get address stored in object
-     *
-     * @note No bus interaction. Returns SDI12 version stored before aI! success command
-     *
-     * @param[in] dev   device object
-     * @param[out] out_vendor_id  device vendor id
-     * @return
-     *      - ESP_INVALID_ARG if NULL dev
-     *      - ESP_OK on success
-     */
-    esp_err_t sdi12_dev_get_vendor_id(sdi12_dev_handle_t dev, char *out_vendor_id);
-
-    /**
-     * @brief Get model stored in object
-     *
-     * @note No bus interaction. Returns sensor model stored before aI! success command
-     *
-     * @param[in] dev   device object
-     * @param[out] out_model  device model
-     *
-     * @return
-     *      - ESP_INVALID_ARG if NULL dev
-     *      - ESP_OK on success
-     */
-    esp_err_t sdi12_dev_get_model(sdi12_dev_handle_t dev, char *out_model);
-
-    /**
-     * @brief Get model version stored in object
-     *
-     * @note No bus interaction. Returns sensor model version stored before aI! success command
-     *
-     * @param[in] dev   Device object
-     * @param[out] out_model_version  device model version
-     *
-     * @return 
-     *      - ESP_INVALID_ARG if NULL dev
-     *      - ESP_OK on success
-     */
-    esp_err_t sdi12_dev_get_model_version(sdi12_dev_handle_t dev, char *out_model_version);
-
-    /**
-     * @brief Get optional field stored in object
-     *
-     * @note No bus interaction. Returns optional field stored before aI! success command
-     *
-     * @param[in] dev   Device object
-     * @return
-     *      - ESP_INVALID_ARG if NULL dev
-     *      - ESP_OK on success
-     */
-    esp_err_t sdi12_dev_get_optional_info(sdi12_dev_handle_t dev, char *out_optional_field);
+    esp_err_t sdi12_dev_get_info(sdi12_dev_handle_t dev, sdi12_dev_info_t *out_info);
 
     /**
      * @brief Send a! command.
      *
      * @param[in] dev       Device object
      * @param[in] timeout   Time to wait for response
-     * @return esp_err_t
+     * @return
      *      - ESP_OK if no error
      *      - ESP_ERR_TIMEOUT if timeout expires
      *      - ESP_ERR_INVALID_ARG if invalid dev
-     *      - ESP_FAIL any other error
+     *      - ESP_ERR_FAIL any other error
      */
     esp_err_t sdi12_dev_acknowledge_active(sdi12_dev_handle_t dev, uint32_t timeout);
 
@@ -114,11 +74,11 @@ extern "C"
      * @param[in] dev           Device object
      * @param[in] new_address   New device address
      * @param[in] timeout
-     * @return esp_err_t
+     * @return
      *      - ESP_OK if no error
      *      - ESP_ERR_TIMEOUT if timeout expires
      *      - ESP_ERR_INVALID_ARG if invalid dev or invalid new address
-     *      - ESP_FAIL any other error
+     *      - ESP_ERR_FAIL any other error
      */
     esp_err_t sdi12_dev_change_address(sdi12_dev_handle_t dev, char new_address, uint32_t timeout);
 
@@ -136,7 +96,7 @@ extern "C"
      *      - ESP_OK if no error
      *      - ESP_ERR_TIMEOUT if timeout expires
      *      - ESP_ERR_INVALID_ARG if invalid dev
-     *      - ESP_FAIL any other error
+     *      - ESP_ERR_FAIL any other error
      */
     esp_err_t sdi12_dev_read_identification(sdi12_dev_handle_t dev, char *out_buffer, size_t out_buffer_length, uint32_t timeout);
 
@@ -152,7 +112,7 @@ extern "C"
      *      - ESP_OK if no error
      *      - ESP_ERR_TIMEOUT if timeout expires
      *      - ESP_ERR_INVALID_ARG if invalid dev or invalid new address
-     *      - ESP_FAIL any other error
+     *      - ESP_ERR_FAIL any other error
      */
     esp_err_t sdi12_dev_address_query(sdi12_dev_handle_t dev, char *address, uint32_t timeout);
 
@@ -170,7 +130,7 @@ extern "C"
      *      - ESP_OK if no error
      *      - ESP_ERR_TIMEOUT if timeout expires
      *      - ESP_ERR_INVALID_ARG if invalid dev or m_index > 9
-     *      - ESP_FAIL any other error
+     *      - ESP_ERR_FAIL any other error
      */
     esp_err_t sdi12_dev_start_measurement(sdi12_dev_handle_t dev, uint8_t m_index, bool crc, uint8_t *n_params, uint32_t timeout);
 
@@ -189,7 +149,7 @@ extern "C"
      *      - ESP_OK if no error
      *      - ESP_ERR_TIMEOUT if timeout expires
      *      - ESP_ERR_INVALID_ARG if invalid dev or d_index > 9
-     *      - ESP_FAIL any other error
+     *      - ESP_ERR_FAIL any other error
      */
     esp_err_t sdi12_dev_read_data(sdi12_dev_handle_t dev, uint8_t d_index, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout);
 
@@ -203,7 +163,7 @@ extern "C"
      *      - ESP_OK if no error
      *      - ESP_ERR_TIMEOUT if timeout expires
      *      - ESP_ERR_INVALID_ARG if invalid dev
-     *      - ESP_FAIL any other error
+     *      - ESP_ERR_FAIL any other error
      */
     esp_err_t sdi12_dev_start_verification(sdi12_dev_handle_t dev, uint8_t *n_params, uint32_t timeout);
 
@@ -221,7 +181,7 @@ extern "C"
      *      - ESP_OK if no error
      *      - ESP_ERR_TIMEOUT if timeout expires
      *      - ESP_ERR_INVALID_ARG if invalid dev
-     *      - ESP_FAIL any other error
+     *      - ESP_ERR_FAIL any other error
      */
     esp_err_t sdi12_dev_start_concurrent_measurement(sdi12_dev_handle_t dev, uint8_t c_index, bool crc, uint8_t *n_params, uint32_t timeout);
 
@@ -240,7 +200,7 @@ extern "C"
      *      - ESP_OK if no error
      *      - ESP_ERR_TIMEOUT if timeout expires
      *      - ESP_ERR_INVALID_ARG if invalid dev
-     *      - ESP_FAIL any other error
+     *      - ESP_ERR_FAIL any other error
      */
     esp_err_t sdi12_dev_read_continuos_measurement(sdi12_dev_handle_t dev, uint8_t r_index, bool crc, char *out_buffer, size_t out_buffer_length,
         uint32_t timeout);
@@ -263,7 +223,7 @@ extern "C"
      *      - ESP_OK if no error
      *      - ESP_ERR_TIMEOUT if timeout expires
      *      - ESP_ERR_INVALID_ARG if invalid dev or cmd length > 3
-     *      - ESP_FAIL any other error
+     *      - ESP_ERR_FAIL any other error
      */
     esp_err_t sdi12_dev_read_identify_cmd(sdi12_dev_handle_t dev, const char *cmd, uint8_t *n_params, uint32_t timeout);
 
@@ -282,7 +242,7 @@ extern "C"
      *      - ESP_OK if no error
      *      - ESP_ERR_TIMEOUT if timeout expires
      *      - ESP_ERR_INVALID_ARG if invalid dev
-     *      - ESP_FAIL any other error
+     *      - ESP_ERR_FAIL any other error
      */
     esp_err_t sdi12_dev_extended_cmd(sdi12_dev_handle_t dev, const char *cmd, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout);
 
@@ -296,21 +256,16 @@ extern "C"
     /**
      * @brief Allocate resources for device.
      *
-     * @details 
-     *  Before allocate device resources and if address is different from '?', acknowledge active command is sent. If response is OK, device object is
-     *  returned. If there is any error or response to acknowledge active is not received, NULL is returned. 
-     * 
-     *  On other hand, if address passed is '?', instead of acknowledge active, address query command is sent.
+     * @details Before allocate device resources and if address is different from '?', acknowledge active command is sent. If response is OK, device object is
+     * returned and NULL if any error on response. On other hand, if address is '?', instead of acknowledge active, address query command is sent.
      *
      * @param[in] bus           SDI12 bus object
      * @param[in] address       Device address or '?' to query it. Ensure only 1 device is on bus if you use '?'.
-     * @param[out] dev_out      Device object or NULL
-     * 
+     * @param[out] dev_out      Created device object
      * @return
-     *      - ESP_OK on creation success
-     *      - ESP_INVALID_ARG if invalid bus or address is not in allowed range
-     *      - ESP_ERR_NO_MEM if resources can't be allocated
-     *      - ESP_FAIL if response to acknowledge active or address command is invalid
+     *      - ESP_OK if success
+     *      - ESP_ERR_NO_MEM if device can't be created
+     *      - ESP_FAIL otherwise
      */
     esp_err_t sdi12_new_dev(sdi12_bus_handle_t bus, char address, sdi12_dev_handle_t *dev_out);
 

@@ -7,15 +7,6 @@
 extern "C"
 {
 #endif
-
-/**
- * By 1.4 specs, commonly response time is:
- *  - 380 msec most commands
- *  - 780 msec for a D command after concurrent measurement
- *  - 810 msec for a D command after concurrent measurement with CRC
- *
- *  Maximum response time is 10.1 seconds to a DB command.
- */
 #define SDI12_DEFAULT_RESPONSE_TIMEOUT (1000) // Milliseconds
 
     typedef struct sdi12_bus *sdi12_bus_handle_t;
@@ -47,14 +38,14 @@ extern "C"
      * @param[out] out_buffer_length    response buffer length
      * @param[in] timeout               time to wait for response
      *
-     * @return
-     *      - ESP_OK on success
-     *      - ESP_ERR_TIMEOUT cmd timeout expires
-     *      - ESP_ERR_INVALID_ARG any invalid argument
-     *      - ESP_ERR_INVALID_SIZE when out buffer length isn't enough
-     *      - ESP_ERR_INVALID_RESPONSE when response first char is different than cmd first char
-     *      - ESP_ERR_NOT_FINISHED when service request required but no address char is received
-     *      - ESP_FAIL all other cases
+     * @return esp_err_t
+     *      ESP_OK on success
+     *      ESP_FAIL
+     *      ESP_ERR_TIMEOUT cmd timeout expires
+     *      ESP_ERR_INVALID_ARG any invalid argument
+     *      ESP_ERR_INVALID_SIZE when out buffer length isn't enough
+     *      ESP_ERR_INVALID_RESPONSE when response first char is different than cmd first char
+     *      ESP_ERR_NOT_FINISHED when service request required but no address char is received
      */
     esp_err_t sdi12_bus_send_cmd(sdi12_bus_handle_t bus, const char *cmd, bool crc, char *out_buffer, size_t out_buffer_length, uint32_t timeout);
 
@@ -62,8 +53,7 @@ extern "C"
      * @brief Deallocate and free bus resources
      *
      * @param[in] bus       bus object to deallocate
-     * @return
-     *      - ESP_OK always
+     * @return esp_err_t
      */
 
     esp_err_t sdi12_del_bus(sdi12_bus_handle_t bus);
@@ -73,11 +63,11 @@ extern "C"
      *
      * @param[in] sdi12_bus_config       See sdi12_bus_config_t
      * @param[out] sdi12_bus_out         Created object
-     * @return
-     *      - ESP_OK when bus can be allocated
-     *      - ESP_ERR_INVALID_ARG when sdi12_bus_config is NULL
+     * @return esp_err_t
+     *      ESP_OK
+     *      ESP_ERR_INVALID_ARG
      */
-    esp_err_t sdi12_new_bus(sdi12_bus_config_t *bus_config, sdi12_bus_handle_t *sdi12_bus_out);
+    esp_err_t sdi12_new_bus(sdi12_bus_config_t *sdi12_bus_config, sdi12_bus_handle_t *sdi12_bus_out);
 
 #ifdef __cplusplus
 }

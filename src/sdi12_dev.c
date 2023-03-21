@@ -3,16 +3,12 @@
 #include "esp_check.h"
 #include "esp_log.h"
 
+#include "sdi12_defs.h"
 #include "sdi12_dev.h"
 
-typedef struct
-{
-    sdi12_version_t sdi12_version;
-    char *vendor_id;
-    char *model;
-    char *model_version;
-    char *optional;
-} sdi12_dev_info_t;
+#if CONFIG_SDI12_ENABLE_DEBUG_LOG
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+#endif
 
 typedef struct sdi12_dev
 {
@@ -71,6 +67,15 @@ static esp_err_t parse_info(sdi12_dev_handle_t dev, char *info_buffer)
     return ESP_OK;
 }
 
+esp_err_t sdi12_dev_get_info(sdi12_dev_handle_t dev, sdi12_dev_info_t *out_info)
+{
+    ESP_RETURN_ON_FALSE(dev && out_info, ESP_ERR_INVALID_ARG, TAG, "invalid args");
+
+    *out_info = dev->info;
+
+    return ESP_OK;
+}
+
 esp_err_t sdi12_dev_get_address(sdi12_dev_handle_t dev, char *out_address)
 {
     ESP_RETURN_ON_FALSE(dev && out_address, ESP_ERR_INVALID_ARG, TAG, "invalid args");
@@ -88,34 +93,34 @@ esp_err_t sdi12_dev_get_sdi_version(sdi12_dev_handle_t dev, sdi12_version_t *out
     return ESP_OK;
 }
 
-esp_err_t sdi12_dev_get_vendor_id(sdi12_dev_handle_t dev, char *out_vendor_id)
+esp_err_t sdi12_dev_get_vendor_id(sdi12_dev_handle_t dev, char **out_vendor_id)
 {
     ESP_RETURN_ON_FALSE(dev && out_vendor_id, ESP_ERR_INVALID_ARG, TAG, "invalid args");
-    out_vendor_id = dev->info.vendor_id;
+    *out_vendor_id = dev->info.vendor_id;
 
     return ESP_OK;
 }
 
-esp_err_t sdi12_dev_get_model(sdi12_dev_handle_t dev, char *out_model)
+esp_err_t sdi12_dev_get_model(sdi12_dev_handle_t dev, char **out_model)
 {
     ESP_RETURN_ON_FALSE(dev && out_model, ESP_ERR_INVALID_ARG, TAG, "invalid args");
-    out_model = dev->info.model;
+    *out_model = dev->info.model;
 
     return ESP_OK;
 }
 
-esp_err_t sdi12_dev_get_model_version(sdi12_dev_handle_t dev, char *out_model_version)
+esp_err_t sdi12_dev_get_model_version(sdi12_dev_handle_t dev, char **out_model_version)
 {
     ESP_RETURN_ON_FALSE(dev && out_model_version, ESP_ERR_INVALID_ARG, TAG, "invalid args");
-    out_model_version = dev->info.model_version;
+    *out_model_version = dev->info.model_version;
 
     return ESP_OK;
 }
 
-esp_err_t sdi12_dev_get_optional_info(sdi12_dev_handle_t dev, char *out_optional_field)
+esp_err_t sdi12_dev_get_optional_info(sdi12_dev_handle_t dev, char **out_optional_field)
 {
     ESP_RETURN_ON_FALSE(dev && out_optional_field, ESP_ERR_INVALID_ARG, TAG, "invalid args");
-    out_optional_field = dev->info.optional;
+    *out_optional_field = dev->info.optional;
 
     return ESP_OK;
 }
@@ -472,7 +477,7 @@ esp_err_t sdi12_new_dev(sdi12_bus_handle_t bus, char address, sdi12_dev_handle_t
     {
         if (sdi12_dev_address_query(dev, &dev->address, 500) != ESP_OK)
         {
-            ESP_LOGE(TAG, "can't find address error");
+            ESP_LOGD(TAG, "can't find address error");
             goto err_cmd;
         }
     }
@@ -482,7 +487,7 @@ esp_err_t sdi12_new_dev(sdi12_bus_handle_t bus, char address, sdi12_dev_handle_t
 
         if (sdi12_dev_acknowledge_active(dev, 500) != ESP_OK)
         {
-            ESP_LOGE(TAG, "can't find sensor with address '%c'", address);
+            ESP_LOGD(TAG, "can't find sensor with address '%c'", address);
             goto err_cmd;
         }
     }

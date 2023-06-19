@@ -410,7 +410,7 @@ esp_err_t sdi12_dev_read_identify_cmd(sdi12_dev_handle_t dev, const char *cmd, u
     ESP_RETURN_ON_FALSE(n_params, ESP_ERR_INVALID_ARG, TAG, "addr: %c, invalid n_params arg", dev->address);
 
     uint8_t len = strlen(cmd);
-    ESP_RETURN_ON_FALSE(len > 3, ESP_ERR_INVALID_ARG, TAG, "addr: %c, invalid cmd", dev->address);
+    ESP_RETURN_ON_FALSE(len > 0, ESP_ERR_INVALID_ARG, TAG, "addr: %c, invalid cmd", dev->address);
 
     char full_cmd[8];
     snprintf(full_cmd, 7, "%cI%s!", dev->address, cmd);

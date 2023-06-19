@@ -47,6 +47,12 @@ typedef struct sdi12_bus
  */
 #define SDI12_MAX_RESPONSE_CHARS (82)
 
+#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2
+#define SDI12_RMT_CLK_SRC RMT_CLK_SRC_REF_TICK
+#else
+#define SDI12_RMT_CLK_SRC RMT_CLK_SRC_DEFAULT
+#endif
+
 static const char *TAG = "sdi12 bus";
 
 /**
@@ -61,7 +67,7 @@ static esp_err_t config_rmt_as_tx(sdi12_bus_t *bus)
 {
     rmt_tx_channel_config_t tx_channel_config = {
         .gpio_num = bus->gpio_num,        // GPIO number
-        .clk_src = RMT_CLK_SRC_DEFAULT,   // select source clock
+        .clk_src = SDI12_RMT_CLK_SRC,   // select source clock
         .resolution_hz = 1 * 1000 * 1000, // 1MHz tick resolution, i.e. 1 tick = 1us
         .mem_block_symbols = 64,          // memory block size, 64 * 4 = 256Bytes
         .trans_queue_depth = 6,
@@ -99,7 +105,7 @@ static esp_err_t config_rmt_as_rx(sdi12_bus_t *bus)
 {
     rmt_rx_channel_config_t rx_channel_config = {
         .gpio_num = bus->gpio_num,
-        .clk_src = RMT_CLK_SRC_DEFAULT,
+        .clk_src = SDI12_RMT_CLK_SRC,
         .mem_block_symbols = 128,
         .resolution_hz = 1 * 1000 * 1000, // 1MHz tick resolution, i.e. 1 tick = 1us
         .flags = {
@@ -284,8 +290,18 @@ static esp_err_t read_response_line(sdi12_bus_t *bus, char *out_buffer, size_t o
     uint32_t aux_timeout = timeout != 0 ? timeout : SDI12_DEFAULT_RESPONSE_TIMEOUT;
 
     rmt_receive_config_t receive_config = {
-        .signal_range_min_ns = (SDI12_BIT_WIDTH_US - 50) * 1000, // the shortest duration for SDI12 signal is bit width
-        .signal_range_max_ns = (SDI12_BREAK_US + 500) * 1000,    // the longest duration for SDI12 signal is break signal
+    
+    // Check @link https://github.com/espressif/esp-idf/issues/11262.
+    // Max range_min_ns value use rmt group resolution and must be a value allocatable in a 8-bit width reg.
+    // Group resolution is the same as RMT source clock
+#if SDI12_RMT_CLK_SRC == RMT_CLK_SRC_REF_TICK
+        // Group resolution = 1Mhz
+        .signal_range_min_ns = 255 * 1000,
+#else
+        // Group resolution = 80Mhz
+        .signal_range_min_ns = 3186,
+#endif
+        .signal_range_max_ns = (SDI12_BREAK_US + 500) * 1000, // the longest duration for SDI12 signal is break signal
     };
 
     ret = rmt_receive(bus->rmt_rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config);
@@ -363,7 +379,7 @@ static void encode_cmd(sdi12_bus_timing_t *timing, const char *cmd, rmt_symbol_w
                     rmt_symbols_out[rmt_symbol_index].duration1 = SDI12_BIT_WIDTH_US;
                     break;
 
-                default: // case 1 to 7, char bits
+                default:                 // case 1 to 7, char bits
 
                     if (cur_byte & 0x01) // bit == 1; Inverse -> 0 to write
                     {
@@ -539,13 +555,12 @@ esp_err_t sdi12_bus_send_cmd(sdi12_bus_handle_t bus, const char *cmd, bool crc, 
                     char temp_buf[4] = { 0 };
 
                     ret = read_response_line(bus, temp_buf, sizeof(temp_buf), seconds * 1000);
-                    
-                    
+
                     if (ret == ESP_OK && strlen(temp_buf) > 0)
                     {
                         ret = temp_buf[0] == cmd[0] ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
                     }
-                    else if(ret == ESP_ERR_TIMEOUT)
+                    else if (ret == ESP_ERR_TIMEOUT)
                     {
                         ret = ESP_ERR_NOT_FINISHED;
                     }

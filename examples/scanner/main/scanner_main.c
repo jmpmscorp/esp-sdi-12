@@ -63,8 +63,8 @@ void app_main(void)
     uint16_t devs = 0;
 
     devs += find_devices_in_range(sdi12_bus, '0', '9');
-    devs += find_devices_in_range(sdi12_bus, 'a', 'z');
-    devs += find_devices_in_range(sdi12_bus, 'A', 'Z');
+    // devs += find_devices_in_range(sdi12_bus, 'a', 'z');
+    // devs += find_devices_in_range(sdi12_bus, 'A', 'Z');
 
     ESP_LOGI(TAG, "End scan. Found %d devices", devs);
 }

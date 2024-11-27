@@ -291,12 +291,17 @@ static esp_err_t read_response_line(sdi12_bus_t *bus, char *out_buffer, size_t o
 
     rmt_receive_config_t receive_config = {
     
-        // Check @link https://github.com/espressif/esp-idf/issues/11262.
-        // Max range_min_ns value use rmt group resolution and must be a value allocatable in a 8-bit width reg.
-        // Group resolution is the same as RMT source clock
-
+    // Check @link https://github.com/espressif/esp-idf/issues/11262.
+    // Max range_min_ns value use rmt group resolution and must be a value allocatable in a 8-bit width reg.
+    // Group resolution is the same as RMT source clock
+// #if SDI12_RMT_CLK_SRC == RMT_CLK_SRC_REF_TICK
+//         // Group resolution = 1Mhz
+//         .signal_range_min_ns = 255 * 1000,
+// #else
         // Group resolution = 80Mhz
         .signal_range_min_ns = 3186,
+// #endif
+      
         .signal_range_max_ns = (SDI12_BREAK_US + 500) * 1000, // the longest duration for SDI12 signal is break signal
     };
 
